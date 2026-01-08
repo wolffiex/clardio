@@ -31,57 +31,66 @@
   </style>
 </head>
 <body class="bg-gray-950 text-white h-full overflow-hidden touch-manipulation">
-  <!-- Main container -->
-  <div id="app" class="h-full flex flex-col justify-between p-6 safe-area">
-
-    <!-- Coach message area -->
-    <div id="coach-section" class="flex-1 flex flex-col items-center justify-center">
-      <p id="coach-message" class="text-4xl md:text-5xl font-light text-center leading-tight max-w-4xl px-4">
-        Connecting...
-      </p>
-
-      <!-- Action button (hidden by default) -->
-      <button
-        id="action-button"
-        class="hidden mt-8 px-12 py-5 text-2xl font-semibold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-2xl transition-colors min-w-[200px] min-h-[60px]"
-      >
-        <!-- Button text set via SSE -->
-      </button>
-    </div>
-
-    <!-- Target overlay (top right, hidden by default) -->
-    <div id="target-overlay" class="hidden absolute top-6 right-6 bg-amber-500/20 border-2 border-amber-500 rounded-xl px-5 py-3">
-      <div class="text-amber-400">
-        <span id="target-power" class="text-xl font-bold">---</span>
-        <span class="text-lg">W</span>
-        <span class="text-gray-400 mx-2">|</span>
-        <span id="target-remaining" class="text-xl font-bold tabular-nums">--:--</span>
+  <!-- Metrics bar at TOP -->
+  <div id="metrics-section" class="absolute top-0 left-0 right-0 bg-gray-800/90 px-6 py-3 flex justify-between items-center safe-area">
+    <div class="flex gap-8">
+      <div class="text-center">
+        <div class="text-2xl font-bold text-cyan-400 tabular-nums">
+          <span id="metric-power">---</span><span class="text-sm">W</span>
+        </div>
+        <div class="text-xs text-gray-400">Power</div>
+      </div>
+      <div class="text-center">
+        <div class="text-2xl font-bold text-red-400 tabular-nums">
+          <span id="metric-hr">---</span>
+        </div>
+        <div class="text-xs text-gray-400">HR</div>
+      </div>
+      <div class="text-center">
+        <div class="text-2xl font-bold text-green-400 tabular-nums">
+          <span id="metric-cadence">---</span>
+        </div>
+        <div class="text-xs text-gray-400">Cadence</div>
+      </div>
+      <div class="text-center">
+        <div class="text-2xl font-bold text-white tabular-nums">
+          <span id="metric-time">00:00</span>
+        </div>
+        <div class="text-xs text-gray-400">Time</div>
       </div>
     </div>
-
-    <!-- Metrics bar at bottom -->
-    <div id="metrics-section" class="flex justify-around items-end text-center pb-2">
-      <div class="metric flex-1">
-        <span id="metric-power" class="text-5xl md:text-6xl font-bold tabular-nums">---</span>
-        <span class="text-lg text-gray-400 block">W</span>
-      </div>
-      <div class="metric flex-1">
-        <span id="metric-hr" class="text-5xl md:text-6xl font-bold tabular-nums text-red-400">---</span>
-        <span class="text-lg text-gray-400 block">bpm</span>
-      </div>
-      <div class="metric flex-1">
-        <span id="metric-cadence" class="text-5xl md:text-6xl font-bold tabular-nums text-blue-400">---</span>
-        <span class="text-lg text-gray-400 block">rpm</span>
-      </div>
-      <div class="metric flex-1">
-        <span id="metric-time" class="text-5xl md:text-6xl font-bold tabular-nums text-gray-300">00:00</span>
-        <span class="text-lg text-gray-400 block">time</span>
+    <!-- Target: Top-Right (in metrics bar) -->
+    <div id="target-overlay" class="hidden text-right">
+      <div class="text-sm text-gray-400">Target</div>
+      <div class="text-xl font-bold text-amber-400">
+        <span id="target-power">---</span>W for <span id="target-remaining" class="tabular-nums">--:--</span>
       </div>
     </div>
   </div>
 
+  <!-- Coach message area: Center -->
+  <div id="coach-section" class="absolute inset-0 flex flex-col items-center justify-center">
+    <p id="coach-message" class="text-2xl md:text-3xl font-light text-center leading-tight max-w-4xl px-4 text-gray-200">
+      Connecting...
+    </p>
+
+    <!-- Action button (hidden by default) -->
+    <button
+      id="action-button"
+      class="hidden mt-6 px-8 py-4 text-xl font-semibold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl transition-colors min-w-[180px] min-h-[56px]"
+    >
+      <!-- Button text set via SSE -->
+    </button>
+  </div>
+
+  <!-- YouTube PiP Zone: Bottom-Right (reserved, stays clear) -->
+  <!-- This ~300x170px area is reserved for YouTube Picture-in-Picture -->
+  <div class="absolute bottom-4 right-4 w-[300px] h-[170px] pointer-events-none">
+    <!-- PiP window will float here -->
+  </div>
+
   <!-- Connection status indicator -->
-  <div id="connection-status" class="absolute top-4 left-4 flex items-center gap-2">
+  <div id="connection-status" class="absolute top-16 left-4 flex items-center gap-2">
     <div id="connection-dot" class="w-3 h-3 rounded-full bg-yellow-500"></div>
     <span id="connection-text" class="text-sm text-gray-500">connecting</span>
   </div>
