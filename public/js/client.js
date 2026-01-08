@@ -222,7 +222,6 @@ var ui = new UIController;
 sse.on("connected", () => {
   console.log("[App] SSE connected event received");
   ui.setConnectionStatus("connected");
-  ui.updateCoach({ text: "Connected. Warming up..." });
 });
 sse.on("coach", (data) => {
   ui.updateCoach(data);
