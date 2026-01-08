@@ -141,7 +141,7 @@ describe("POST /api/target - set_target tool", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
-    expect(broadcastSpy).toHaveBeenCalledWith("target", { power: 200, duration: 300 });
+    expect(broadcastSpy).toHaveBeenCalledWith("target", { power: 200, remaining: 300 });
   });
 
   test("accepts target with cadence and duration", async () => {
@@ -158,7 +158,7 @@ describe("POST /api/target - set_target tool", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
-    expect(broadcastSpy).toHaveBeenCalledWith("target", { cadence: 90, duration: 120 });
+    expect(broadcastSpy).toHaveBeenCalledWith("target", { cadence: 90, remaining: 120 });
   });
 
   test("accepts target with power, cadence, and duration", async () => {
@@ -178,7 +178,7 @@ describe("POST /api/target - set_target tool", () => {
     expect(broadcastSpy).toHaveBeenCalledWith("target", {
       power: 180,
       cadence: 85,
-      duration: 600,
+      remaining: 600,
     });
   });
 
