@@ -11,10 +11,9 @@ import {
 
 describe("parseSSEEvent", () => {
   test("parses coach event", () => {
-    const data = '{"text":"Hello rider","button":"Start"}';
+    const data = '{"text":"Hello rider"}';
     const result = parseSSEEvent<CoachEvent>(data);
     expect(result.text).toBe("Hello rider");
-    expect(result.button).toBe("Start");
   });
 
   test("parses metrics event", () => {
@@ -132,18 +131,6 @@ describe("SSEClient event handling", () => {
   });
 });
 
-describe("Action POST payload", () => {
-  test("creates valid payload", async () => {
-    const { createActionPayload } = await import("../src/client/handlers");
-
-    const payload = createActionPayload("Start Workout");
-
-    expect(payload.action).toBe("button_pressed");
-    expect(payload.label).toBe("Start Workout");
-    expect(typeof payload.timestamp).toBe("number");
-    expect(payload.timestamp).toBeGreaterThan(0);
-  });
-});
 
 describe("formatRemaining", () => {
   test("formats 0 seconds", () => {

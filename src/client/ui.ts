@@ -4,7 +4,6 @@ import { CountdownTimer } from "./countdown";
 
 interface UIElements {
   coachMessage: HTMLElement;
-  actionButton: HTMLButtonElement;
   power: HTMLElement;
   hr: HTMLElement;
   cadence: HTMLElement;
@@ -21,8 +20,6 @@ interface UIElements {
  */
 export class UIController {
   private elements: UIElements;
-  private onButtonClick: ((label: string) => void) | null = null;
-  private currentButtonLabel: string = "";
   private countdown: CountdownTimer;
 
   constructor() {
@@ -32,7 +29,6 @@ export class UIController {
 
     this.elements = {
       coachMessage: document.getElementById("coach-message")!,
-      actionButton: document.getElementById("action-button") as HTMLButtonElement,
       power: document.getElementById("metric-power")!,
       hr: document.getElementById("metric-hr")!,
       cadence: document.getElementById("metric-cadence")!,
@@ -43,43 +39,13 @@ export class UIController {
       connectionDot: document.getElementById("connection-dot")!,
       connectionText: document.getElementById("connection-text")!,
     };
-
-    // Button click handler
-    this.elements.actionButton.addEventListener("click", () => {
-      if (this.currentButtonLabel && this.onButtonClick) {
-        this.onButtonClick(this.currentButtonLabel);
-      }
-    });
   }
 
   /**
-   * Set handler for button clicks
-   */
-  setButtonHandler(handler: (label: string) => void): void {
-    this.onButtonClick = handler;
-  }
-
-  /**
-   * Update coach message and button
+   * Update coach message
    */
   updateCoach(event: CoachEvent): void {
     this.elements.coachMessage.textContent = event.text;
-
-    if (event.button) {
-      this.currentButtonLabel = event.button;
-      this.elements.actionButton.textContent = event.button;
-      this.elements.actionButton.classList.remove("hidden");
-    } else {
-      this.hideButton();
-    }
-  }
-
-  /**
-   * Hide the action button
-   */
-  hideButton(): void {
-    this.elements.actionButton.classList.add("hidden");
-    this.currentButtonLabel = "";
   }
 
   /**

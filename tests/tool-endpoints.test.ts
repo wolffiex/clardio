@@ -40,31 +40,11 @@ describe("POST /api/coach - send_message tool", () => {
     expect(broadcastSpy).toHaveBeenCalledWith("coach", { text: "Great work! Keep it up!" });
   });
 
-  test("accepts valid payload with text and button", async () => {
-    broadcastSpy.mockClear();
-    const payload = { text: "Ready to start?", button: "Let's go!" };
-
-    const res = await fetch(`${baseUrl}/api/coach`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-
-    expect(broadcastSpy).toHaveBeenCalledWith("coach", {
-      text: "Ready to start?",
-      button: "Let's go!",
-    });
-  });
-
   test("rejects payload without text", async () => {
     const res = await fetch(`${baseUrl}/api/coach`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ button: "Click me" }),
+      body: JSON.stringify({ other: "data" }),
     });
 
     expect(res.status).toBe(400);
@@ -78,18 +58,6 @@ describe("POST /api/coach - send_message tool", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: 123 }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
-  });
-
-  test("rejects payload with non-string button", async () => {
-    const res = await fetch(`${baseUrl}/api/coach`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Hello", button: 123 }),
     });
 
     expect(res.status).toBe(400);

@@ -3,7 +3,6 @@
 // coach event - from Claude
 export interface CoachEvent {
   text: string;
-  button?: string; // Optional button label
 }
 
 // metrics event - live data
@@ -47,14 +46,3 @@ export interface SSEMessage<T = unknown> {
   data: T;
 }
 
-// POST payload (Client -> Server)
-export interface ActionPayload {
-  action: "button_pressed";
-  label: string;
-  timestamp: number;
-}
-
-export interface ActionResponse {
-  success: boolean;
-  message?: string;
-}

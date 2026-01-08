@@ -61,13 +61,6 @@ function formatTime(seconds) {
   }
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
-function createActionPayload(label) {
-  return {
-    action: "button_pressed",
-    label,
-    timestamp: Date.now()
-  };
-}
 
 // src/client/countdown.ts
 function formatRemaining(seconds) {
@@ -143,8 +136,6 @@ class CountdownTimer {
 // src/client/ui.ts
 class UIController {
   elements;
-  onButtonClick = null;
-  currentButtonLabel = "";
   countdown;
   constructor() {
     this.countdown = new CountdownTimer((display) => {
@@ -152,7 +143,6 @@ class UIController {
     });
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
-      actionButton: document.getElementById("action-button"),
       power: document.getElementById("metric-power"),
       hr: document.getElementById("metric-hr"),
       cadence: document.getElementById("metric-cadence"),
@@ -163,28 +153,9 @@ class UIController {
       connectionDot: document.getElementById("connection-dot"),
       connectionText: document.getElementById("connection-text")
     };
-    this.elements.actionButton.addEventListener("click", () => {
-      if (this.currentButtonLabel && this.onButtonClick) {
-        this.onButtonClick(this.currentButtonLabel);
-      }
-    });
-  }
-  setButtonHandler(handler) {
-    this.onButtonClick = handler;
   }
   updateCoach(event) {
     this.elements.coachMessage.textContent = event.text;
-    if (event.button) {
-      this.currentButtonLabel = event.button;
-      this.elements.actionButton.textContent = event.button;
-      this.elements.actionButton.classList.remove("hidden");
-    } else {
-      this.hideButton();
-    }
-  }
-  hideButton() {
-    this.elements.actionButton.classList.add("hidden");
-    this.currentButtonLabel = "";
   }
   updateMetrics(event) {
     this.elements.power.textContent = event.power.toString();
@@ -237,22 +208,6 @@ sse.on("_connected", () => {
 });
 sse.on("_error", () => {
   ui.setConnectionStatus("disconnected");
-});
-ui.setButtonHandler(async (label) => {
-  try {
-    const payload = createActionPayload(label);
-    const response = await fetch("/api/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-      console.error("[App] Action failed:", response.status);
-    }
-    ui.hideButton();
-  } catch (error) {
-    console.error("[App] Failed to send action:", error);
-  }
 });
 sse.connect();
 console.log("[App] Clardio UI initialized");

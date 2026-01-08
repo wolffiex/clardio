@@ -1,4 +1,4 @@
-import type { ActionPayload, TargetEvent } from "../shared/types";
+import type { TargetEvent } from "../shared/types";
 
 /**
  * Parse JSON data from SSE event
@@ -51,15 +51,4 @@ export function formatTargetDisplay(target: TargetEvent | null): string {
   }
 
   return parts.join(" ");
-}
-
-/**
- * Create action payload for button press
- */
-export function createActionPayload(label: string): ActionPayload {
-  return {
-    action: "button_pressed",
-    label,
-    timestamp: Date.now(),
-  };
 }
