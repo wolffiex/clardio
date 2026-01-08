@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clardio Meter Mockups</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-white min-h-screen p-8">
+  <div class="max-w-4xl mx-auto">
+
+    <h1 class="text-4xl font-bold mb-2">Clardio Meter Mockups</h1>
+    <p class="text-gray-400 mb-8">Power and cadence display variations for iPad landscape (1024x768)</p>
+
+    <div class="grid gap-6">
+
+      <!-- Mockup A -->
+      <a href="meters-a.html" class="block bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-600 transition-colors">
+        <div class="flex justify-between items-start">
+          <div>
+            <h2 class="text-xl font-semibold mb-2">A. Stacked Vertical</h2>
+            <p class="text-gray-400 mb-4">Current value on top (big), target below (smaller) with direction arrow</p>
+            <div class="text-gray-500 font-mono text-sm">
+              <pre class="whitespace-pre">
+  ┌─────────┐    ┌─────────┐
+  │  165W   │    │  82rpm  │   current
+  │  ↓180W  │    │  ↓85rpm │   target
+  └─────────┘    └─────────┘</pre>
+            </div>
+          </div>
+          <span class="text-gray-600 text-2xl">→</span>
+        </div>
+      </a>
+
+      <!-- Mockup B -->
+      <a href="meters-b.html" class="block bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-600 transition-colors">
+        <div class="flex justify-between items-start">
+          <div>
+            <h2 class="text-xl font-semibold mb-2">B. Side by Side with Arrow</h2>
+            <p class="text-gray-400 mb-4">Current and target horizontally with arrow pointing to target</p>
+            <div class="text-gray-500 font-mono text-sm">
+              <pre class="whitespace-pre">
+  165W → 180W        82rpm → 85rpm</pre>
+            </div>
+          </div>
+          <span class="text-gray-600 text-2xl">→</span>
+        </div>
+      </a>
+
+      <!-- Mockup C -->
+      <a href="meters-c.html" class="block bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-600 transition-colors">
+        <div class="flex justify-between items-start">
+          <div>
+            <h2 class="text-xl font-semibold mb-2">C. Progress Bar Style</h2>
+            <p class="text-gray-400 mb-4">Large progress bars with target as endpoint, color indicates over/under</p>
+            <div class="text-gray-500 font-mono text-sm">
+              <pre class="whitespace-pre">
+  165W ████████████████░░░ 180W
+  82rpm ██████████████████░ 85rpm</pre>
+            </div>
+          </div>
+          <span class="text-gray-600 text-2xl">→</span>
+        </div>
+      </a>
+
+      <!-- Mockup D -->
+      <a href="meters-d.html" class="block bg-gray-900 rounded-xl p-6 border border-gray-800 hover:border-gray-600 transition-colors">
+        <div class="flex justify-between items-start">
+          <div>
+            <h2 class="text-xl font-semibold mb-2">D. Huge Numbers with Subtitle</h2>
+            <p class="text-gray-400 mb-4">Massive current values, target shown as subtitle text</p>
+            <div class="text-gray-500 font-mono text-sm">
+              <pre class="whitespace-pre">
+      165              82
+     watts            rpm
+  target: 180W    target: 85rpm</pre>
+            </div>
+          </div>
+          <span class="text-gray-600 text-2xl">→</span>
+        </div>
+      </a>
+
+    </div>
+
+    <div class="mt-12 p-6 bg-gray-900 rounded-xl border border-gray-800">
+      <h3 class="text-lg font-semibold mb-4">Design Notes</h3>
+      <ul class="text-gray-400 space-y-2">
+        <li>• All mockups show sample data: 165W/82rpm current, 180W/85rpm target</li>
+        <li>• Orange indicates under target, green indicates at or over target</li>
+        <li>• HR and elapsed time in top left (secondary info)</li>
+        <li>• Countdown timer visible in all layouts</li>
+        <li>• Bottom right reserved for YouTube PiP overlay</li>
+        <li>• Coach message area in center</li>
+        <li>• Each mockup includes examples of both under and over target states</li>
+      </ul>
+    </div>
+
+  </div>
+</body>
+</html>
