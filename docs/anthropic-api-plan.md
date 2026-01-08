@@ -522,3 +522,80 @@ await sendMessage({ text: "Find it." });
 - [Streaming Documentation](https://platform.claude.com/docs/en/api/messages-streaming)
 - [Pricing](https://platform.claude.com/docs/en/about-claude/pricing)
 - [Prompt Engineering Best Practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-4-best-practices)
+
+## Implementation Learnings
+
+### SDK Patterns That Worked Well
+
+1. **Simple client instantiation** - The SDK reads `ANTHROPIC_API_KEY` from env automatically, no config needed
+2. **Clean tool definition format** - The `Anthropic.Tool` type maps directly to JSON Schema, easy to define
+3. **Stop reason handling** - `response.stop_reason === "tool_use"` cleanly indicates when to process tools
+4. **Content block iteration** - Looping over `response.content` and checking `block.type === "tool_use"` is straightforward
+5. **Dependency injection** - Passing the Anthropic client to `CoachingLoop` makes testing trivial
+
+### Gotchas and Surprises
+
+1. **Array mutation in mocks** - When passing `this.messages` to the API, the mock captures a reference. Later mutations to the array appear in recorded calls. Fix: pass `[...this.messages]` (shallow copy) to the API.
+
+2. **Zod v4 breaking changes** - Zod 4.x has different import patterns. Use `z.object({}).refine()` for cross-field validation (e.g., "at least one of power or cadence required").
+
+3. **SDK types are strict** - Mock responses need all fields (`citations` on TextBlock, full `Usage` object). Easier to use `any` for mocks and only type-check the fields you actually verify.
+
+4. **Tool input comes as `unknown`** - The `block.input` from tool_use blocks is typed as `unknown`. Always validate with Zod before using.
+
+5. **Bun compatibility** - The SDK works perfectly with Bun. No polyfills or workarounds needed.
+
+### Tool Definition Tips
+
+1. **Separate Zod schemas from API definitions** - Define Zod schemas for validation, then create `Anthropic.Tool[]` array separately for the API. This keeps validation logic reusable.
+
+2. **Use refinements for complex validation** - For "at least one of X or Y", use `.refine()`:
+   ```typescript
+   z.object({ power: z.number().optional(), cadence: z.number().optional(), duration: z.number() })
+     .refine(d => d.power !== undefined || d.cadence !== undefined, {
+       message: "At least one of power or cadence required"
+     })
+   ```
+
+3. **Keep tool descriptions concise but complete** - Claude uses descriptions to understand when/how to use tools. Include examples and constraints.
+
+4. **Handler pattern** - Create handlers via factory function that takes an event emitter:
+   ```typescript
+   function createToolHandlers(emit: EventEmitter): ToolHandlers { ... }
+   ```
+
+5. **Return structured results** - Tool results should be JSON with `{ success: boolean, error?: string, ...data }` for consistent handling.
+
+### Streaming Considerations
+
+1. **Non-streaming is simpler for tool loops** - We used `messages.create()` (non-streaming) which simplifies the tool call loop. For streaming, you'd need the `toolRunner` helper or manual stream handling.
+
+2. **Tool calls block streaming** - When Claude decides to use a tool, you get the full tool_use block, not streamed. The streaming benefit is mainly for text responses.
+
+3. **Latency trade-off** - For short coaching messages (1-8 words), streaming adds complexity without much perceived benefit. Consider streaming only for longer responses.
+
+4. **Beta API for toolRunner** - The `anthropic.beta.messages.toolRunner()` helper auto-handles tool execution loops but is in beta. Manual loop gives more control.
+
+### Testing Patterns
+
+1. **Mock the client, not the SDK** - Create a mock object with `messages: { create: mockFn }` and cast as `unknown as Anthropic`. Don't try to mock the SDK itself.
+
+2. **Factory functions for mock responses** - Create helpers like `createMockToolUseMessage(name, input)` to generate valid response structures.
+
+3. **Use loose types for mocks** - Define `type MockMessage = any` for test responses. The SDK types are too strict for convenient mocking.
+
+4. **Cast mock.calls carefully** - Bun's mock types are strict. Use `(mock.calls as unknown[][])[0]![0] as YourType`.
+
+5. **Fresh mocks per test** - Don't share mock instances across tests. Create fresh mocks in each test to avoid call history contamination.
+
+6. **Test the loop with call counting** - For tool execution tests, track call count to return different responses:
+   ```typescript
+   let callCount = 0;
+   const mockCreate = mock(() => {
+     callCount++;
+     if (callCount === 1) return toolUseResponse;
+     return textResponse;
+   });
+   ```
+
+7. **Verify events, not just API calls** - The real test is whether correct events were emitted. Check `events.length` and `events[0]` after each tick.
