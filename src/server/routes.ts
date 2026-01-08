@@ -1,4 +1,4 @@
-import type { ActionPayload, ActionResponse, CoachEvent, SetTargetPayload, WorkoutEndEvent } from "../shared/types";
+import type { ActionPayload, ActionResponse, CoachEvent, MetricsEvent, SetTargetPayload, WorkoutEndEvent } from "../shared/types";
 import { broadcast } from "./sse";
 
 // Tool endpoint response type
@@ -106,6 +106,55 @@ export async function handleCoach(req: Request): Promise<Response> {
     broadcast("coach", event);
 
     console.log(`[Coach] Message: "${body.text}"${body.button ? ` [${body.button}]` : ""}`);
+
+    return Response.json({ ok: true } satisfies ToolResponse);
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: "Invalid JSON" } satisfies ToolResponse,
+      { status: 400 }
+    );
+  }
+}
+
+// POST /api/metrics - sensor data
+function isValidMetricsPayload(body: unknown): body is MetricsEvent {
+  if (typeof body !== "object" || body === null) return false;
+  const obj = body as Record<string, unknown>;
+  if (typeof obj.power !== "number") return false;
+  if (typeof obj.hr !== "number") return false;
+  if (typeof obj.cadence !== "number") return false;
+  if (typeof obj.elapsed !== "number") return false;
+  return true;
+}
+
+export async function handleMetrics(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return Response.json(
+      { ok: false, error: "Method not allowed" } satisfies ToolResponse,
+      { status: 405 }
+    );
+  }
+
+  try {
+    const text = await req.text();
+    if (!text) {
+      return Response.json(
+        { ok: false, error: "Request body required" } satisfies ToolResponse,
+        { status: 400 }
+      );
+    }
+
+    const body = JSON.parse(text);
+
+    if (!isValidMetricsPayload(body)) {
+      return Response.json(
+        { ok: false, error: "Invalid payload: power (number), hr (number), cadence (number), and elapsed (number) are required" } satisfies ToolResponse,
+        { status: 400 }
+      );
+    }
+
+    // Broadcast to all SSE clients
+    broadcast("metrics", body);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

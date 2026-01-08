@@ -272,6 +272,144 @@ describe("POST /api/target - set_target tool", () => {
   });
 });
 
+describe("POST /api/metrics - sensor data", () => {
+  test("accepts valid metrics payload and broadcasts SSE", async () => {
+    broadcastSpy.mockClear();
+    const payload = { power: 200, hr: 145, cadence: 90, elapsed: 300 };
+
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+
+    expect(broadcastSpy).toHaveBeenCalledWith("metrics", payload);
+  });
+
+  test("rejects payload with missing power field", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hr: 145, cadence: 90, elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error).toBeDefined();
+  });
+
+  test("rejects payload with missing hr field", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, cadence: 90, elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with missing cadence field", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, hr: 145, elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with missing elapsed field", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, hr: 145, cadence: 90 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with non-number power", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: "200", hr: 145, cadence: 90, elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with non-number hr", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, hr: "145", cadence: 90, elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with non-number cadence", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, hr: 145, cadence: "90", elapsed: 300 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects payload with non-number elapsed", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ power: 200, hr: 145, cadence: 90, elapsed: "300" }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects invalid JSON", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not json",
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+
+  test("rejects non-POST methods", async () => {
+    const res = await fetch(`${baseUrl}/api/metrics`, {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(405);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+  });
+});
+
 describe("POST /api/end - end_workout tool", () => {
   test("accepts valid workout end payload", async () => {
     broadcastSpy.mockClear();

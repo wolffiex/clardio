@@ -1,6 +1,6 @@
 import type { Server } from "bun";
 import { handleSSE, broadcast, broadcastCoach, broadcastMetrics, broadcastTarget, broadcastSetTarget, broadcastWorkoutEnd } from "./sse";
-import { handleAction, handleCoach, handleTarget, handleEnd, onAction } from "./routes";
+import { handleAction, handleCoach, handleMetrics, handleTarget, handleEnd, onAction } from "./routes";
 import { join } from "node:path";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
@@ -25,6 +25,10 @@ export function createServer(port: number = 0): Server {
       // Tool endpoints (for coach integration)
       if (pathname === "/api/coach") {
         return handleCoach(req);
+      }
+
+      if (pathname === "/api/metrics") {
+        return handleMetrics(req);
       }
 
       if (pathname === "/api/target") {
