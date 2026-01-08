@@ -1,4 +1,4 @@
-import type { ActionPayload, ActionResponse, CoachEvent, SetTargetPayload, WorkoutEndEvent } from "../shared/types";
+import type { ActionPayload, ActionResponse, CoachEvent, SetTargetPayload, TargetEvent, WorkoutEndEvent } from "../shared/types";
 import { broadcast } from "./sse";
 
 // Tool endpoint response type
@@ -153,8 +153,9 @@ export async function handleTarget(req: Request): Promise<Response> {
       );
     }
 
-    // Build the target payload
-    const target: SetTargetPayload = { duration: body.duration };
+    // Build the target event for broadcasting
+    // Convert SetTargetPayload (duration) to TargetEvent (remaining) for the UI
+    const target: TargetEvent = { remaining: body.duration };
     if (body.power !== undefined) target.power = body.power;
     if (body.cadence !== undefined) target.cadence = body.cadence;
 

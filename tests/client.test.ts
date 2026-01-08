@@ -84,6 +84,14 @@ describe("formatTargetDisplay", () => {
   test("returns empty for null", () => {
     expect(formatTargetDisplay(null)).toBe("");
   });
+
+  test("formats 150W power target with 60 second duration", () => {
+    // Regression test: server converts duration -> remaining
+    // Before fix: { power: 150, duration: 60 } caused "150W | NaN:NaN"
+    // After fix: { power: 150, remaining: 60 } shows "150W for 1:00"
+    const target: TargetEvent = { power: 150, remaining: 60 };
+    expect(formatTargetDisplay(target)).toBe("150W for 1:00");
+  });
 });
 
 describe("SSEClient event handling", () => {
