@@ -1,5 +1,6 @@
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
-import { formatTime, formatTargetDisplay } from "./handlers";
+import { formatTime } from "./handlers";
+import { CountdownTimer } from "./countdown";
 
 interface UIElements {
   coachMessage: HTMLElement;
@@ -22,8 +23,13 @@ export class UIController {
   private elements: UIElements;
   private onButtonClick: ((label: string) => void) | null = null;
   private currentButtonLabel: string = "";
+  private countdown: CountdownTimer;
 
   constructor() {
+    this.countdown = new CountdownTimer((display) => {
+      this.updateTargetDisplay(display);
+    });
+
     this.elements = {
       coachMessage: document.getElementById("coach-message")!,
       actionButton: document.getElementById("action-button") as HTMLButtonElement,
@@ -87,16 +93,19 @@ export class UIController {
   }
 
   /**
-   * Update target display
+   * Update target - starts countdown timer
    */
   updateTarget(event: TargetEvent | null): void {
-    if (event) {
-      if (event.power !== undefined) {
-        this.elements.targetPower.textContent = event.power.toString();
-      } else if (event.cadence !== undefined) {
-        this.elements.targetPower.textContent = event.cadence.toString();
-      }
-      this.elements.targetRemaining.textContent = formatTime(event.remaining);
+    this.countdown.setTarget(event);
+  }
+
+  /**
+   * Internal: update target display elements
+   */
+  private updateTargetDisplay(display: { text: string; time: string } | null): void {
+    if (display) {
+      this.elements.targetPower.textContent = display.text;
+      this.elements.targetRemaining.textContent = display.time;
       this.elements.targetOverlay.classList.remove("hidden");
     } else {
       this.elements.targetOverlay.classList.add("hidden");
