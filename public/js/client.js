@@ -69,12 +69,87 @@ function createActionPayload(label) {
   };
 }
 
+// src/client/countdown.ts
+function formatRemaining(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+function formatTargetText(target) {
+  if (target.power !== undefined && target.cadence !== undefined) {
+    return `${target.power}W / ${target.cadence}rpm`;
+  } else if (target.power !== undefined) {
+    return `${target.power}W`;
+  } else if (target.cadence !== undefined) {
+    return `${target.cadence}rpm`;
+  }
+  return "";
+}
+
+class CountdownTimer {
+  intervalId = null;
+  remaining = 0;
+  target = null;
+  callback;
+  constructor(callback) {
+    this.callback = callback;
+  }
+  setTarget(event) {
+    this.clear();
+    if (!event) {
+      this.callback(null);
+      return;
+    }
+    if (event.remaining <= 0) {
+      this.callback(null);
+      return;
+    }
+    this.target = { power: event.power, cadence: event.cadence };
+    this.remaining = event.remaining;
+    this.updateDisplay();
+    this.intervalId = setInterval(() => {
+      this.remaining--;
+      if (this.remaining <= 0) {
+        this.clear();
+        this.callback(null);
+      } else {
+        this.updateDisplay();
+      }
+    }, 1000);
+  }
+  clear() {
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+    this.target = null;
+    this.remaining = 0;
+  }
+  updateDisplay() {
+    if (!this.target)
+      return;
+    const text = formatTargetText(this.target);
+    const time = formatRemaining(this.remaining);
+    this.callback({ text, time });
+  }
+  getRemaining() {
+    return this.remaining;
+  }
+  isActive() {
+    return this.intervalId !== null;
+  }
+}
+
 // src/client/ui.ts
 class UIController {
   elements;
   onButtonClick = null;
   currentButtonLabel = "";
+  countdown;
   constructor() {
+    this.countdown = new CountdownTimer((display) => {
+      this.updateTargetDisplay(display);
+    });
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
       actionButton: document.getElementById("action-button"),
@@ -118,13 +193,12 @@ class UIController {
     this.elements.time.textContent = formatTime(event.elapsed);
   }
   updateTarget(event) {
-    if (event) {
-      if (event.power !== undefined) {
-        this.elements.targetPower.textContent = event.power.toString();
-      } else if (event.cadence !== undefined) {
-        this.elements.targetPower.textContent = event.cadence.toString();
-      }
-      this.elements.targetRemaining.textContent = formatTime(event.remaining);
+    this.countdown.setTarget(event);
+  }
+  updateTargetDisplay(display) {
+    if (display) {
+      this.elements.targetPower.textContent = display.text;
+      this.elements.targetRemaining.textContent = display.time;
       this.elements.targetOverlay.classList.remove("hidden");
     } else {
       this.elements.targetOverlay.classList.add("hidden");
