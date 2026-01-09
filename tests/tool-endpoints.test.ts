@@ -95,9 +95,9 @@ describe("POST /api/coach - send_message tool", () => {
 });
 
 describe("POST /api/target - set_target tool", () => {
-  test("accepts target with power and duration", async () => {
+  test("accepts baseline target (power and cadence without duration)", async () => {
     broadcastSpy.mockClear();
-    const payload = { power: 200, duration: 300 };
+    const payload = { power: 80, cadence: 70 };
 
     const res = await fetch(`${baseUrl}/api/target`, {
       method: "POST",
@@ -109,27 +109,11 @@ describe("POST /api/target - set_target tool", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
-    expect(broadcastSpy).toHaveBeenCalledWith("target", { power: 200, remaining: 300 });
+    // Baseline target: no remaining field
+    expect(broadcastSpy).toHaveBeenCalledWith("target", { power: 80, cadence: 70 });
   });
 
-  test("accepts target with cadence and duration", async () => {
-    broadcastSpy.mockClear();
-    const payload = { cadence: 90, duration: 120 };
-
-    const res = await fetch(`${baseUrl}/api/target`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-
-    expect(broadcastSpy).toHaveBeenCalledWith("target", { cadence: 90, remaining: 120 });
-  });
-
-  test("accepts target with power, cadence, and duration", async () => {
+  test("accepts active target with power, cadence, and duration", async () => {
     broadcastSpy.mockClear();
     const payload = { power: 180, cadence: 85, duration: 600 };
 
@@ -143,6 +127,7 @@ describe("POST /api/target - set_target tool", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
+    // Active target: has remaining field
     expect(broadcastSpy).toHaveBeenCalledWith("target", {
       power: 180,
       cadence: 85,
@@ -182,7 +167,20 @@ describe("POST /api/target - set_target tool", () => {
     expect(broadcastSpy).toHaveBeenCalledWith("target", null);
   });
 
-  test("rejects target without duration", async () => {
+  test("rejects target without power", async () => {
+    const res = await fetch(`${baseUrl}/api/target`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cadence: 70 }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error).toBeDefined();
+  });
+
+  test("rejects target without cadence", async () => {
     const res = await fetch(`${baseUrl}/api/target`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -199,7 +197,7 @@ describe("POST /api/target - set_target tool", () => {
     const res = await fetch(`${baseUrl}/api/target`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: "200", duration: 300 }),
+      body: JSON.stringify({ power: "200", cadence: 85, duration: 300 }),
     });
 
     expect(res.status).toBe(400);
@@ -211,7 +209,7 @@ describe("POST /api/target - set_target tool", () => {
     const res = await fetch(`${baseUrl}/api/target`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cadence: "90", duration: 300 }),
+      body: JSON.stringify({ power: 200, cadence: "90", duration: 300 }),
     });
 
     expect(res.status).toBe(400);
@@ -223,7 +221,7 @@ describe("POST /api/target - set_target tool", () => {
     const res = await fetch(`${baseUrl}/api/target`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, duration: "300" }),
+      body: JSON.stringify({ power: 200, cadence: 85, duration: "300" }),
     });
 
     expect(res.status).toBe(400);

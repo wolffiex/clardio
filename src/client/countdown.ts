@@ -24,6 +24,7 @@ export function formatTargetText(target: { power?: number; cadence?: number }): 
 }
 
 export type CountdownCallback = (display: { text: string; time: string } | null) => void;
+export type CountdownCompleteCallback = () => void;
 
 /**
  * Countdown timer for target display
@@ -34,28 +35,47 @@ export class CountdownTimer {
   private remaining: number = 0;
   private target: { power?: number; cadence?: number } | null = null;
   private callback: CountdownCallback;
+  private onComplete: CountdownCompleteCallback | null = null;
 
-  constructor(callback: CountdownCallback) {
+  constructor(callback: CountdownCallback, onComplete?: CountdownCompleteCallback) {
     this.callback = callback;
+    this.onComplete = onComplete || null;
+  }
+
+  /**
+   * Set callback for when countdown completes (reverts to baseline)
+   */
+  setOnComplete(callback: CountdownCompleteCallback | null): void {
+    this.onComplete = callback;
   }
 
   /**
    * Start or replace countdown with a new target
+   * If event has no remaining field, it's a baseline (no countdown needed)
+   * Returns true if this is an active target (with countdown), false if baseline
    */
-  setTarget(event: TargetEvent | null): void {
+  setTarget(event: TargetEvent | null): boolean {
     // Clear any existing countdown
     this.clear();
 
     if (!event) {
       // Null target - clear display
       this.callback(null);
-      return;
+      return false;
     }
 
-    // Zero or negative duration - clear immediately
+    // If no remaining field, this is a baseline target - no countdown needed
+    if (event.remaining === undefined) {
+      return false;
+    }
+
+    // Zero or negative duration - trigger completion immediately
     if (event.remaining <= 0) {
       this.callback(null);
-      return;
+      if (this.onComplete) {
+        this.onComplete();
+      }
+      return false;
     }
 
     // Store target info and remaining time
@@ -72,10 +92,16 @@ export class CountdownTimer {
       if (this.remaining <= 0) {
         this.clear();
         this.callback(null);
+        // Call the completion callback to revert to baseline
+        if (this.onComplete) {
+          this.onComplete();
+        }
       } else {
         this.updateDisplay();
       }
     }, 1000);
+
+    return true;
   }
 
   /**

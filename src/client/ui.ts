@@ -29,12 +29,16 @@ interface UIElements {
 }
 
 interface CurrentTarget {
-  power?: number;
-  cadence?: number;
+  power: number;
+  cadence: number;
 }
 
 /**
  * UI Controller - manages DOM updates with progress bar meters
+ *
+ * Tracks two types of targets:
+ * - baseline: persists until changed (no countdown)
+ * - activeTarget: has countdown, reverts to baseline when complete
  */
 export class UIController {
   private elements: UIElements;
@@ -44,16 +48,20 @@ export class UIController {
   private powerAvg: RollingAverage;
   private cadenceAvg: RollingAverage;
 
-  // Current target values
-  private currentTarget: CurrentTarget = {};
+  // Baseline target (persists until changed)
+  private baseline: CurrentTarget | null = null;
+
+  // Active target with countdown (reverts to baseline when complete)
+  private activeTarget: CurrentTarget | null = null;
 
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
 
-    this.countdown = new CountdownTimer((display) => {
-      this.updateCountdownDisplay(display);
-    });
+    this.countdown = new CountdownTimer(
+      (display) => this.updateCountdownDisplay(display),
+      () => this.revertToBaseline()
+    );
 
     this.elements = {
       coachMessage: document.getElementById("coach-message")!,
@@ -102,18 +110,21 @@ export class UIController {
     const powerRolling = this.powerAvg.push(event.power);
     const cadenceRolling = this.cadenceAvg.push(event.cadence);
 
+    // Display target: active target takes priority, otherwise show baseline
+    const displayTarget = this.activeTarget || this.baseline;
+
     // Update progress bars if targets are set
     this.updateProgressBar(
       'power',
       powerRolling,
-      this.currentTarget.power,
+      displayTarget?.power,
       'W'
     );
 
     this.updateProgressBar(
       'cadence',
       cadenceRolling,
-      this.currentTarget.cadence,
+      displayTarget?.cadence,
       'rpm'
     );
   }
@@ -189,21 +200,47 @@ export class UIController {
   }
 
   /**
-   * Update target - starts countdown timer and stores target values
+   * Update target - handles both baseline and active targets
+   *
+   * - Target WITH remaining: active target (starts countdown, reverts to baseline when done)
+   * - Target WITHOUT remaining: baseline target (persists until changed)
+   * - null: clears all targets
    */
   updateTarget(event: TargetEvent | null): void {
-    if (event) {
-      // Store current target values
-      this.currentTarget = {
+    if (!event) {
+      // Null target - clear everything
+      this.baseline = null;
+      this.activeTarget = null;
+      this.countdown.setTarget(null);
+      return;
+    }
+
+    // Check if this is an active target (has remaining/duration) or baseline
+    if (event.remaining !== undefined) {
+      // Active target with countdown
+      this.activeTarget = {
         power: event.power,
         cadence: event.cadence,
       };
+      // Start countdown - will call revertToBaseline when done
+      this.countdown.setTarget(event);
     } else {
-      // Clear targets
-      this.currentTarget = {};
+      // Baseline target (no countdown)
+      this.baseline = {
+        power: event.power,
+        cadence: event.cadence,
+      };
+      // Clear any active target since we're setting a new baseline
+      // (but don't clear countdown - let it finish if running)
     }
+  }
 
-    this.countdown.setTarget(event);
+  /**
+   * Revert display to baseline when active target countdown completes
+   */
+  private revertToBaseline(): void {
+    this.activeTarget = null;
+    // Baseline remains unchanged - UI will show baseline on next metrics update
   }
 
   /**
@@ -215,8 +252,8 @@ export class UIController {
       this.elements.countdownSection.classList.remove("hidden");
     } else {
       this.elements.countdownSection.classList.add("hidden");
-      // Clear targets when countdown ends
-      this.currentTarget = {};
+      // Note: activeTarget is cleared by revertToBaseline callback
+      // Baseline persists even when countdown ends
     }
   }
 
@@ -237,9 +274,24 @@ export class UIController {
   }
 
   /**
-   * Get current target (for testing)
+   * Get current display target (for testing)
+   * Returns activeTarget if set, otherwise baseline
    */
-  getCurrentTarget(): CurrentTarget {
-    return { ...this.currentTarget };
+  getCurrentTarget(): CurrentTarget | null {
+    return this.activeTarget || this.baseline;
+  }
+
+  /**
+   * Get baseline target (for testing)
+   */
+  getBaseline(): CurrentTarget | null {
+    return this.baseline ? { ...this.baseline } : null;
+  }
+
+  /**
+   * Get active target (for testing)
+   */
+  getActiveTarget(): CurrentTarget | null {
+    return this.activeTarget ? { ...this.activeTarget } : null;
   }
 }

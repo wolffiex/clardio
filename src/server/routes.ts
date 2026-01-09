@@ -111,9 +111,11 @@ export async function handleMetrics(req: Request): Promise<Response> {
 function isValidTargetPayload(body: unknown): body is SetTargetPayload {
   if (typeof body !== "object" || body === null) return false;
   const obj = body as Record<string, unknown>;
-  if (typeof obj.duration !== "number") return false;
-  if (obj.power !== undefined && typeof obj.power !== "number") return false;
-  if (obj.cadence !== undefined && typeof obj.cadence !== "number") return false;
+  // power and cadence are REQUIRED
+  if (typeof obj.power !== "number") return false;
+  if (typeof obj.cadence !== "number") return false;
+  // duration is optional - if absent, it's a baseline target
+  if (obj.duration !== undefined && typeof obj.duration !== "number") return false;
   return true;
 }
 
@@ -139,20 +141,26 @@ export async function handleTarget(req: Request): Promise<Response> {
 
     if (!isValidTargetPayload(body)) {
       return Response.json(
-        { ok: false, error: "Invalid payload: duration (number) is required, power (number) and cadence (number) are optional" } satisfies ToolResponse,
+        { ok: false, error: "Invalid payload: power (number) and cadence (number) are required, duration (number) is optional" } satisfies ToolResponse,
         { status: 400 }
       );
     }
 
     // Build the target event for broadcasting
-    // Convert SetTargetPayload (duration) to TargetEvent (remaining) for the UI
-    const target: TargetEvent = { remaining: body.duration };
-    if (body.power !== undefined) target.power = body.power;
-    if (body.cadence !== undefined) target.cadence = body.cadence;
+    // If duration is present, include remaining for active target with countdown
+    // If duration is absent, it's a baseline target (no remaining field)
+    const target: TargetEvent = {
+      power: body.power,
+      cadence: body.cadence,
+    };
+    if (body.duration !== undefined) {
+      target.remaining = body.duration;
+    }
 
     broadcast("target", target);
 
-    console.log(`[Target] Set: ${JSON.stringify(target)}`);
+    const targetType = body.duration !== undefined ? "active" : "baseline";
+    console.log(`[Target] Set ${targetType}: ${JSON.stringify(target)}`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

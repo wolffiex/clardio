@@ -32,21 +32,19 @@ function formatRemaining(seconds: number): string {
 
 /**
  * Format target event for display
+ * For active targets (with remaining), shows: "180W @ 85rpm for 2:47"
+ * For baseline targets (without remaining), shows: "80W @ 70rpm"
  */
 export function formatTargetDisplay(target: TargetEvent | null): string {
   if (!target) return "";
 
   const parts: string[] = [];
 
-  if (target.power !== undefined && target.cadence !== undefined) {
-    parts.push(`${target.power}W @ ${target.cadence}rpm`);
-  } else if (target.power !== undefined) {
-    parts.push(`${target.power}W`);
-  } else if (target.cadence !== undefined) {
-    parts.push(`${target.cadence}rpm`);
-  }
+  // Format power and cadence
+  parts.push(`${target.power}W @ ${target.cadence}rpm`);
 
-  if (parts.length > 0) {
+  // Only add duration for active targets
+  if (target.remaining !== undefined) {
     parts.push(`for ${formatRemaining(target.remaining)}`);
   }
 
