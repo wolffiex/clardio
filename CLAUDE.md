@@ -13,7 +13,16 @@ Claude controls the screen - this is not a chat interface. The coach is:
 
 - **Bun server** - SSE for server-to-client, HTTP POST for client-to-server and tools
 - **Coach process** - Separate from UI server (multiprocess, HTTP interface)
-- **Bluetooth** - Bike data via Gymnasticon/K2Pi, HR via COROS watch (not yet implemented)
+- **Bluetooth sensor bridge** - Connects to BLE devices and POSTs metrics to server
+
+## Bluetooth Devices
+
+| Device | MAC | Services |
+|--------|-----|----------|
+| Gymnasticon (K2Pi) | B8:27:EB:95:0B:90 | Cycling Power (0x1818), CSC (0x1816) |
+| COROS PACE 3 | F7:AF:40:38:08:90 | Heart Rate (0x180D) |
+
+Run sensor bridge: `bun run sensors` (requires Node.js + bluetooth permissions)
 
 ## Tech Stack
 
