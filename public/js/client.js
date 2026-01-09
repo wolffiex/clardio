@@ -133,13 +133,53 @@ class CountdownTimer {
   }
 }
 
+// src/client/rolling-average.ts
+class RollingAverage {
+  values = [];
+  windowSize;
+  constructor(windowSeconds = 3) {
+    this.windowSize = windowSeconds;
+  }
+  push(value) {
+    this.values.push(value);
+    if (this.values.length > this.windowSize) {
+      this.values.shift();
+    }
+    return this.average();
+  }
+  average() {
+    if (this.values.length === 0)
+      return 0;
+    return this.values.reduce((a, b) => a + b, 0) / this.values.length;
+  }
+  clear() {
+    this.values = [];
+  }
+  count() {
+    return this.values.length;
+  }
+}
+function calculateFillPercent(rollingAvg, target) {
+  if (target <= 0)
+    return 0;
+  return Math.min(100, rollingAvg / target * 100);
+}
+function getProgressColor(rollingAvg, target) {
+  return rollingAvg >= target ? "green" : "orange";
+}
+
 // src/client/ui.ts
 class UIController {
   elements;
   countdown;
+  powerAvg;
+  cadenceAvg;
+  currentTarget = {};
   constructor() {
+    this.powerAvg = new RollingAverage(3);
+    this.cadenceAvg = new RollingAverage(3);
     this.countdown = new CountdownTimer((display) => {
-      this.updateTargetDisplay(display);
+      this.updateCountdownDisplay(display);
     });
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
@@ -147,9 +187,18 @@ class UIController {
       hr: document.getElementById("metric-hr"),
       cadence: document.getElementById("metric-cadence"),
       time: document.getElementById("metric-time"),
-      targetOverlay: document.getElementById("target-overlay"),
-      targetPower: document.getElementById("target-power"),
-      targetRemaining: document.getElementById("target-remaining"),
+      powerTargetSection: document.getElementById("power-target-section"),
+      powerTarget: document.getElementById("power-target"),
+      powerBarContainer: document.getElementById("power-bar-container"),
+      powerBarFill: document.getElementById("power-bar-fill"),
+      powerDelta: document.getElementById("power-delta"),
+      cadenceTargetSection: document.getElementById("cadence-target-section"),
+      cadenceTarget: document.getElementById("cadence-target"),
+      cadenceBarContainer: document.getElementById("cadence-bar-container"),
+      cadenceBarFill: document.getElementById("cadence-bar-fill"),
+      cadenceDelta: document.getElementById("cadence-delta"),
+      countdownSection: document.getElementById("countdown-section"),
+      countdownTime: document.getElementById("countdown-time"),
       connectionDot: document.getElementById("connection-dot"),
       connectionText: document.getElementById("connection-text")
     };
@@ -162,17 +211,74 @@ class UIController {
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
     this.elements.time.textContent = formatTime(event.elapsed);
+    const powerRolling = this.powerAvg.push(event.power);
+    const cadenceRolling = this.cadenceAvg.push(event.cadence);
+    this.updateProgressBar("power", powerRolling, this.currentTarget.power, "W");
+    this.updateProgressBar("cadence", cadenceRolling, this.currentTarget.cadence, "rpm");
+  }
+  updateProgressBar(type, rollingAvg, target, unit) {
+    const elements = type === "power" ? {
+      targetSection: this.elements.powerTargetSection,
+      targetValue: this.elements.powerTarget,
+      barContainer: this.elements.powerBarContainer,
+      barFill: this.elements.powerBarFill,
+      delta: this.elements.powerDelta
+    } : {
+      targetSection: this.elements.cadenceTargetSection,
+      targetValue: this.elements.cadenceTarget,
+      barContainer: this.elements.cadenceBarContainer,
+      barFill: this.elements.cadenceBarFill,
+      delta: this.elements.cadenceDelta
+    };
+    if (!target) {
+      elements.targetSection.classList.add("hidden");
+      elements.barContainer.classList.add("hidden");
+      elements.delta.classList.add("hidden");
+      return;
+    }
+    elements.targetSection.classList.remove("hidden");
+    elements.barContainer.classList.remove("hidden");
+    elements.delta.classList.remove("hidden");
+    elements.targetValue.textContent = target.toString();
+    const fillPercent = calculateFillPercent(rollingAvg, target);
+    const color = getProgressColor(rollingAvg, target);
+    elements.barFill.style.width = `${fillPercent}%`;
+    if (color === "green") {
+      elements.barFill.classList.remove("from-orange-600", "to-orange-500");
+      elements.barFill.classList.add("from-green-600", "to-green-400");
+    } else {
+      elements.barFill.classList.remove("from-green-600", "to-green-400");
+      elements.barFill.classList.add("from-orange-600", "to-orange-500");
+    }
+    const diff = Math.round(rollingAvg - target);
+    if (diff >= 0) {
+      elements.delta.textContent = `+${diff}${unit}`;
+      elements.delta.classList.remove("text-orange-500");
+      elements.delta.classList.add("text-green-500");
+    } else {
+      elements.delta.textContent = `${Math.abs(diff)}${unit} to go`;
+      elements.delta.classList.remove("text-green-500");
+      elements.delta.classList.add("text-orange-500");
+    }
   }
   updateTarget(event) {
+    if (event) {
+      this.currentTarget = {
+        power: event.power,
+        cadence: event.cadence
+      };
+    } else {
+      this.currentTarget = {};
+    }
     this.countdown.setTarget(event);
   }
-  updateTargetDisplay(display) {
+  updateCountdownDisplay(display) {
     if (display) {
-      this.elements.targetPower.textContent = display.text;
-      this.elements.targetRemaining.textContent = display.time;
-      this.elements.targetOverlay.classList.remove("hidden");
+      this.elements.countdownTime.textContent = display.time;
+      this.elements.countdownSection.classList.remove("hidden");
     } else {
-      this.elements.targetOverlay.classList.add("hidden");
+      this.elements.countdownSection.classList.add("hidden");
+      this.currentTarget = {};
     }
   }
   setConnectionStatus(status) {
@@ -184,6 +290,9 @@ class UIController {
     this.elements.connectionDot.classList.remove("bg-green-500", "bg-yellow-500", "bg-red-500");
     this.elements.connectionDot.classList.add(dotColors[status]);
     this.elements.connectionText.textContent = status;
+  }
+  getCurrentTarget() {
+    return { ...this.currentTarget };
   }
 }
 

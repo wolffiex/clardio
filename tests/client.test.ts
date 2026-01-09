@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, mock, afterEach, jest } from "bun:test";
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../src/shared/types";
 import { CountdownTimer, formatRemaining, formatTargetText } from "../src/client/countdown";
+import { RollingAverage, calculateFillPercent, getProgressColor } from "../src/client/rolling-average";
 
 // Test the event handler logic (pure functions, no DOM)
 import {
@@ -330,5 +331,131 @@ describe("CountdownTimer", () => {
     timer.setTarget({ power: 200, remaining: 600 }); // 10 minutes
 
     expect(callbackMock).toHaveBeenCalledWith({ text: "200W", time: "10:00" });
+  });
+});
+
+describe("RollingAverage", () => {
+  test("returns 0 when empty", () => {
+    const ra = new RollingAverage(3);
+    expect(ra.average()).toBe(0);
+  });
+
+  test("returns single value when only one pushed", () => {
+    const ra = new RollingAverage(3);
+    expect(ra.push(100)).toBe(100);
+    expect(ra.average()).toBe(100);
+  });
+
+  test("calculates average of multiple values", () => {
+    const ra = new RollingAverage(3);
+    ra.push(100);
+    ra.push(200);
+    expect(ra.average()).toBe(150);
+    ra.push(300);
+    expect(ra.average()).toBe(200);
+  });
+
+  test("maintains window size", () => {
+    const ra = new RollingAverage(3);
+    ra.push(100);
+    ra.push(200);
+    ra.push(300);
+    // Window is full: [100, 200, 300]
+    expect(ra.average()).toBe(200);
+    expect(ra.count()).toBe(3);
+
+    // Push 4th value, should drop 100
+    ra.push(400);
+    // Window now: [200, 300, 400]
+    expect(ra.average()).toBe(300);
+    expect(ra.count()).toBe(3);
+  });
+
+  test("push returns current average", () => {
+    const ra = new RollingAverage(3);
+    expect(ra.push(100)).toBe(100);
+    expect(ra.push(200)).toBe(150);
+    expect(ra.push(300)).toBe(200);
+    expect(ra.push(400)).toBe(300);
+  });
+
+  test("clear resets all values", () => {
+    const ra = new RollingAverage(3);
+    ra.push(100);
+    ra.push(200);
+    ra.clear();
+    expect(ra.average()).toBe(0);
+    expect(ra.count()).toBe(0);
+  });
+
+  test("custom window size works", () => {
+    const ra = new RollingAverage(5);
+    for (let i = 1; i <= 6; i++) {
+      ra.push(i * 10);
+    }
+    // Values: [20, 30, 40, 50, 60] (dropped 10)
+    expect(ra.count()).toBe(5);
+    expect(ra.average()).toBe(40);
+  });
+
+  test("default window size is 3", () => {
+    const ra = new RollingAverage();
+    ra.push(10);
+    ra.push(20);
+    ra.push(30);
+    ra.push(40);
+    // Should have dropped 10
+    expect(ra.count()).toBe(3);
+    expect(ra.average()).toBe(30);
+  });
+});
+
+describe("calculateFillPercent", () => {
+  test("returns 0 for zero target", () => {
+    expect(calculateFillPercent(100, 0)).toBe(0);
+  });
+
+  test("returns 0 for negative target", () => {
+    expect(calculateFillPercent(100, -10)).toBe(0);
+  });
+
+  test("returns percentage when below target", () => {
+    expect(calculateFillPercent(90, 100)).toBe(90);
+    expect(calculateFillPercent(50, 200)).toBe(25);
+  });
+
+  test("returns 100 when at target", () => {
+    expect(calculateFillPercent(100, 100)).toBe(100);
+  });
+
+  test("caps at 100 when above target", () => {
+    expect(calculateFillPercent(150, 100)).toBe(100);
+    expect(calculateFillPercent(200, 100)).toBe(100);
+  });
+
+  test("handles fractional percentages", () => {
+    const result = calculateFillPercent(165, 180);
+    expect(result).toBeCloseTo(91.67, 1);
+  });
+});
+
+describe("getProgressColor", () => {
+  test("returns orange when below target", () => {
+    expect(getProgressColor(90, 100)).toBe("orange");
+    expect(getProgressColor(50, 100)).toBe("orange");
+  });
+
+  test("returns green when at target", () => {
+    expect(getProgressColor(100, 100)).toBe("green");
+  });
+
+  test("returns green when above target", () => {
+    expect(getProgressColor(110, 100)).toBe("green");
+    expect(getProgressColor(200, 100)).toBe("green");
+  });
+
+  test("handles edge case at exactly target", () => {
+    expect(getProgressColor(180, 180)).toBe("green");
+    expect(getProgressColor(85, 85)).toBe("green");
   });
 });
