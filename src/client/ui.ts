@@ -15,11 +15,13 @@ interface UIElements {
   powerBarContainer: HTMLElement;
   powerBarFill: HTMLElement;
   powerDelta: HTMLElement;
+  powerOverTarget: HTMLElement;
   cadenceTargetSection: HTMLElement;
   cadenceTarget: HTMLElement;
   cadenceBarContainer: HTMLElement;
   cadenceBarFill: HTMLElement;
   cadenceDelta: HTMLElement;
+  cadenceOverTarget: HTMLElement;
   // Countdown
   countdownSection: HTMLElement;
   countdownTime: HTMLElement;
@@ -75,11 +77,13 @@ export class UIController {
       powerBarContainer: document.getElementById("power-bar-container")!,
       powerBarFill: document.getElementById("power-bar-fill")!,
       powerDelta: document.getElementById("power-delta")!,
+      powerOverTarget: document.getElementById("power-over-target")!,
       cadenceTargetSection: document.getElementById("cadence-target-section")!,
       cadenceTarget: document.getElementById("cadence-target")!,
       cadenceBarContainer: document.getElementById("cadence-bar-container")!,
       cadenceBarFill: document.getElementById("cadence-bar-fill")!,
       cadenceDelta: document.getElementById("cadence-delta")!,
+      cadenceOverTarget: document.getElementById("cadence-over-target")!,
       // Countdown
       countdownSection: document.getElementById("countdown-section")!,
       countdownTime: document.getElementById("countdown-time")!,
@@ -116,6 +120,7 @@ export class UIController {
     // Update progress bars if targets are set
     this.updateProgressBar(
       'power',
+      event.power,
       powerRolling,
       displayTarget?.power,
       'W'
@@ -123,6 +128,7 @@ export class UIController {
 
     this.updateProgressBar(
       'cadence',
+      event.cadence,
       cadenceRolling,
       displayTarget?.cadence,
       'rpm'
@@ -131,9 +137,12 @@ export class UIController {
 
   /**
    * Update a single progress bar meter
+   * @param currentValue - The instantaneous value (for delta display)
+   * @param rollingAvg - The rolling average (for progress bar fill)
    */
   private updateProgressBar(
     type: 'power' | 'cadence',
+    currentValue: number,
     rollingAvg: number,
     target: number | undefined,
     unit: string
@@ -145,6 +154,7 @@ export class UIController {
           barContainer: this.elements.powerBarContainer,
           barFill: this.elements.powerBarFill,
           delta: this.elements.powerDelta,
+          overTarget: this.elements.powerOverTarget,
         }
       : {
           targetSection: this.elements.cadenceTargetSection,
@@ -152,6 +162,7 @@ export class UIController {
           barContainer: this.elements.cadenceBarContainer,
           barFill: this.elements.cadenceBarFill,
           delta: this.elements.cadenceDelta,
+          overTarget: this.elements.cadenceOverTarget,
         };
 
     if (!target) {
@@ -159,6 +170,7 @@ export class UIController {
       elements.targetSection.classList.add("hidden");
       elements.barContainer.classList.add("hidden");
       elements.delta.classList.add("hidden");
+      elements.overTarget.classList.add("hidden");
       return;
     }
 
@@ -186,8 +198,8 @@ export class UIController {
       elements.barFill.classList.add("from-orange-600", "to-orange-500");
     }
 
-    // Update delta text
-    const diff = Math.round(rollingAvg - target);
+    // Update delta text (uses current value, not rolling average, to match displayed value)
+    const diff = Math.round(currentValue - target);
     if (diff >= 0) {
       elements.delta.textContent = `+${diff}${unit}`;
       elements.delta.classList.remove("text-orange-500");
@@ -196,6 +208,13 @@ export class UIController {
       elements.delta.textContent = `${Math.abs(diff)}${unit} to go`;
       elements.delta.classList.remove("text-green-500");
       elements.delta.classList.add("text-orange-500");
+    }
+
+    // Show over-target warning when rolling average exceeds target
+    if (rollingAvg > target) {
+      elements.overTarget.classList.remove("hidden");
+    } else {
+      elements.overTarget.classList.add("hidden");
     }
   }
 

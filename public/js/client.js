@@ -206,11 +206,13 @@ class UIController {
       powerBarContainer: document.getElementById("power-bar-container"),
       powerBarFill: document.getElementById("power-bar-fill"),
       powerDelta: document.getElementById("power-delta"),
+      powerOverTarget: document.getElementById("power-over-target"),
       cadenceTargetSection: document.getElementById("cadence-target-section"),
       cadenceTarget: document.getElementById("cadence-target"),
       cadenceBarContainer: document.getElementById("cadence-bar-container"),
       cadenceBarFill: document.getElementById("cadence-bar-fill"),
       cadenceDelta: document.getElementById("cadence-delta"),
+      cadenceOverTarget: document.getElementById("cadence-over-target"),
       countdownSection: document.getElementById("countdown-section"),
       countdownTime: document.getElementById("countdown-time"),
       connectionDot: document.getElementById("connection-dot"),
@@ -228,27 +230,30 @@ class UIController {
     const powerRolling = this.powerAvg.push(event.power);
     const cadenceRolling = this.cadenceAvg.push(event.cadence);
     const displayTarget = this.activeTarget || this.baseline;
-    this.updateProgressBar("power", powerRolling, displayTarget?.power, "W");
-    this.updateProgressBar("cadence", cadenceRolling, displayTarget?.cadence, "rpm");
+    this.updateProgressBar("power", event.power, powerRolling, displayTarget?.power, "W");
+    this.updateProgressBar("cadence", event.cadence, cadenceRolling, displayTarget?.cadence, "rpm");
   }
-  updateProgressBar(type, rollingAvg, target, unit) {
+  updateProgressBar(type, currentValue, rollingAvg, target, unit) {
     const elements = type === "power" ? {
       targetSection: this.elements.powerTargetSection,
       targetValue: this.elements.powerTarget,
       barContainer: this.elements.powerBarContainer,
       barFill: this.elements.powerBarFill,
-      delta: this.elements.powerDelta
+      delta: this.elements.powerDelta,
+      overTarget: this.elements.powerOverTarget
     } : {
       targetSection: this.elements.cadenceTargetSection,
       targetValue: this.elements.cadenceTarget,
       barContainer: this.elements.cadenceBarContainer,
       barFill: this.elements.cadenceBarFill,
-      delta: this.elements.cadenceDelta
+      delta: this.elements.cadenceDelta,
+      overTarget: this.elements.cadenceOverTarget
     };
     if (!target) {
       elements.targetSection.classList.add("hidden");
       elements.barContainer.classList.add("hidden");
       elements.delta.classList.add("hidden");
+      elements.overTarget.classList.add("hidden");
       return;
     }
     elements.targetSection.classList.remove("hidden");
@@ -265,7 +270,7 @@ class UIController {
       elements.barFill.classList.remove("from-green-600", "to-green-400");
       elements.barFill.classList.add("from-orange-600", "to-orange-500");
     }
-    const diff = Math.round(rollingAvg - target);
+    const diff = Math.round(currentValue - target);
     if (diff >= 0) {
       elements.delta.textContent = `+${diff}${unit}`;
       elements.delta.classList.remove("text-orange-500");
@@ -274,6 +279,11 @@ class UIController {
       elements.delta.textContent = `${Math.abs(diff)}${unit} to go`;
       elements.delta.classList.remove("text-green-500");
       elements.delta.classList.add("text-orange-500");
+    }
+    if (rollingAvg > target) {
+      elements.overTarget.classList.remove("hidden");
+    } else {
+      elements.overTarget.classList.add("hidden");
     }
   }
   updateTarget(event) {
