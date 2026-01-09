@@ -1,6 +1,12 @@
 import type { CoachEvent, MetricsEvent, SetTargetPayload, TargetEvent, WorkoutEndEvent } from "../shared/types";
 import { broadcast } from "./sse";
 
+// Simple logger helper
+function log(message: string) {
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+  console.log(`[${time}] ${message}`);
+}
+
 // Tool endpoint response type
 interface ToolResponse {
   ok: boolean;
@@ -47,7 +53,7 @@ export async function handleCoach(req: Request): Promise<Response> {
     // Broadcast to all SSE clients
     broadcast("coach", { text: body.text });
 
-    console.log(`[Coach] Message: "${body.text}"`);
+    log(`POST /api/coach → "${body.text}"`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {
@@ -98,6 +104,8 @@ export async function handleMetrics(req: Request): Promise<Response> {
     // Broadcast to all SSE clients
     broadcast("metrics", body);
 
+    log(`POST /api/metrics → power:${body.power} hr:${body.hr} cadence:${body.cadence} elapsed:${body.elapsed}`);
+
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {
     return Response.json(
@@ -133,7 +141,7 @@ export async function handleTarget(req: Request): Promise<Response> {
     // Empty body or null clears the target
     if (!text || text === "null") {
       broadcast("target", null);
-      console.log("[Target] Cleared");
+      log("POST /api/target → cleared");
       return Response.json({ ok: true } satisfies ToolResponse);
     }
 
@@ -159,8 +167,11 @@ export async function handleTarget(req: Request): Promise<Response> {
 
     broadcast("target", target);
 
-    const targetType = body.duration !== undefined ? "active" : "baseline";
-    console.log(`[Target] Set ${targetType}: ${JSON.stringify(target)}`);
+    if (body.duration !== undefined) {
+      log(`POST /api/target → ${body.power}W/${body.cadence}rpm for ${body.duration}s`);
+    } else {
+      log(`POST /api/target → ${body.power}W/${body.cadence}rpm (baseline)`);
+    }
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {
@@ -215,7 +226,7 @@ export async function handleEnd(req: Request): Promise<Response> {
 
     broadcast("workout_end", body);
 
-    console.log(`[WorkoutEnd] Summary: "${body.summary}", Duration: ${body.stats.duration}s`);
+    log(`POST /api/end → "${body.summary}" (${body.stats.duration}s, ${body.stats.avg_power}W avg)`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

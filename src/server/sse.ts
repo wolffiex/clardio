@@ -5,6 +5,15 @@ const encoder = new TextEncoder();
 const emitter = new EventEmitter();
 emitter.setMaxListeners(100); // Support multiple connections
 
+// Track connected clients for logging
+let clientCount = 0;
+
+// Simple logger helper
+function log(message: string) {
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+  console.log(`[${time}] ${message}`);
+}
+
 function formatSSE(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -15,6 +24,8 @@ export function handleSSE(req: Request): Response {
   const stream = new ReadableStream({
     start(controller) {
       controllerRef = controller;
+      clientCount++;
+      log(`SSE client connected (total: ${clientCount})`);
 
       // Send retry interval
       controller.enqueue(encoder.encode("retry: 3000\n\n"));
@@ -38,6 +49,8 @@ export function handleSSE(req: Request): Response {
       // Clean up on abort
       req.signal.addEventListener("abort", () => {
         emitter.off("broadcast", handler);
+        clientCount--;
+        log(`SSE client disconnected (total: ${clientCount})`);
         try {
           controller.close();
         } catch {
