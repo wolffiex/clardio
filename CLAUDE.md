@@ -22,7 +22,17 @@ Claude controls the screen - this is not a chat interface. The coach is:
 | Gymnasticon (K2Pi) | B8:27:EB:95:0B:90 | Cycling Power (0x1818), CSC (0x1816) |
 | COROS PACE 3 | F7:AF:40:38:08:90 | Heart Rate (0x180D) |
 
-Run sensor bridge: `bun run sensors` (requires Node.js + bluetooth permissions)
+## Bluetooth Troubleshooting
+
+Run sensor bridge with the USB dongle (hci1):
+```bash
+sudo NOBLE_HCI_DEVICE_ID=1 bun run sensors
+```
+
+If the USB dongle becomes unresponsive with timeout errors, reset it:
+```bash
+sudo usbreset "2357:0604"
+```
 
 ## Tech Stack
 
