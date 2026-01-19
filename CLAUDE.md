@@ -104,7 +104,6 @@ tests/                # Bun tests
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/events` | GET | SSE stream |
-| `/api/action` | POST | Button presses from client |
 | `/api/coach` | POST | Tool: send_message |
 | `/api/target` | POST | Tool: set_target |
 | `/api/end` | POST | Tool: end_workout |
@@ -113,7 +112,7 @@ tests/                # Bun tests
 
 Three tools total:
 
-1. **send_message** - `{ text, button? }` - Coach speaks to rider
+1. **send_message** - `{ text }` - Coach speaks to rider
 2. **set_target** - `{ power?, cadence?, duration } | null` - Set or clear target
 3. **end_workout** - `{ summary, stats }` - End the session
 

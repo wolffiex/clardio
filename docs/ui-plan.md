@@ -11,7 +11,7 @@ A minimal, focused cycling coach UI optimized for iPad horizontal orientation.
 | Templating | Template literals | No framework overhead, simple string interpolation |
 | Client TS | Bun bundler | `bun build --target browser` for client modules |
 | Server->Client | SSE | One-way stream, auto-reconnect, simple protocol |
-| Client->Server | HTTP POST | Discrete actions (button clicks) |
+| Client->Server | HTTP POST | Tool endpoints (metrics, coach commands) |
 
 ---
 
@@ -52,12 +52,11 @@ The server handles three concerns:
 
 1. **Static files**: Serve `public/` and `dist/` directories
 2. **SSE endpoint**: Keep connection open, push coach messages
-3. **POST endpoint**: Receive button click confirmations
+3. **POST endpoints**: Receive metrics and tool commands
 
 ```typescript
 // src/server/index.ts
 import { handleSSE, broadcast } from "./sse";
-import { handleButtonClick } from "./routes";
 
 const server = Bun.serve({
   port: 3000,
@@ -70,11 +69,6 @@ const server = Bun.serve({
 
     // SSE endpoint
     "/events": (req) => handleSSE(req),
-
-    // Button click feedback
-    "/api/action": {
-      POST: async (req) => handleButtonClick(req),
-    },
   },
 
   // Fallback for unmatched routes
@@ -235,16 +229,6 @@ Single HTML file with all layout structure. No templating engine needed.
       </p>
     </div>
 
-    <!-- Action button: hidden by default -->
-    <div id="button-section" class="flex justify-center pb-8">
-      <button
-        id="action-button"
-        class="hidden px-16 py-6 text-3xl font-semibold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-2xl transition-colors"
-      >
-        <!-- Button text injected via SSE -->
-      </button>
-    </div>
-
     <!-- Metrics bar: always visible at bottom -->
     <div id="metrics-section" class="flex justify-around items-end text-center">
       <div class="metric">
@@ -286,10 +270,9 @@ All events follow the SSE format: `event: <type>\ndata: <json>\n\n`
 | Event Type | Payload | Purpose |
 |------------|---------|---------|
 | `connected` | `{ timestamp: number }` | Confirm connection established |
-| `coach` | `{ message: string, button?: { text: string, action: string } }` | Update coach message and optionally show button |
+| `coach` | `{ message: string }` | Update coach message |
 | `metrics` | `{ power?: number, hr?: number, cadence?: number, elapsed?: number }` | Update live metrics display |
 | `target` | `{ text: string } \| null` | Show/hide target overlay |
-| `clear-button` | `{}` | Hide the action button |
 
 ### Event Payload Types
 
@@ -298,10 +281,6 @@ All events follow the SSE format: `event: <type>\ndata: <json>\n\n`
 
 export interface CoachEvent {
   message: string;
-  button?: {
-    text: string;   // e.g., "Let's go"
-    action: string; // e.g., "start_workout", "confirm_ready"
-  };
 }
 
 export interface MetricsEvent {
@@ -320,15 +299,14 @@ export type SSEEvent =
   | { type: "connected"; data: { timestamp: number } }
   | { type: "coach"; data: CoachEvent }
   | { type: "metrics"; data: MetricsEvent }
-  | { type: "target"; data: TargetEvent | null }
-  | { type: "clear-button"; data: {} };
+  | { type: "target"; data: TargetEvent | null };
 ```
 
 ### Example SSE Messages
 
 ```
 event: coach
-data: {"message":"Ready for a 30-minute endurance ride?","button":{"text":"Let's go","action":"start_workout"}}
+data: {"message":"Ready for a 30-minute endurance ride?"}
 
 event: metrics
 data: {"power":175,"hr":142,"cadence":88,"elapsed":847}
@@ -338,54 +316,6 @@ data: {"text":"180W for 2:47"}
 
 event: target
 data: null
-
-event: clear-button
-data: {}
-```
-
----
-
-## POST Endpoints (Client -> Server)
-
-### POST /api/action
-
-Called when user taps the action button.
-
-**Request:**
-```typescript
-{
-  action: string;     // The action string from the button
-  timestamp: number;  // When button was pressed
-}
-```
-
-**Response:**
-```typescript
-{
-  success: boolean;
-  message?: string;   // Optional confirmation
-}
-```
-
-**Server Handler:**
-```typescript
-// src/server/routes.ts
-
-export async function handleButtonClick(req: Request): Promise<Response> {
-  try {
-    const body = await req.json() as { action: string; timestamp: number };
-
-    // Process the action (e.g., notify coach logic)
-    console.log(`Action received: ${body.action} at ${body.timestamp}`);
-
-    // Forward to coach/workout logic
-    // coachController.handleUserAction(body.action);
-
-    return Response.json({ success: true });
-  } catch (error) {
-    return Response.json({ success: false, message: "Invalid request" }, { status: 400 });
-  }
-}
 ```
 
 ---
@@ -415,7 +345,7 @@ export class SSEClient {
     };
 
     // Listen for all custom event types
-    ["connected", "coach", "metrics", "target", "clear-button"].forEach(type => {
+    ["connected", "coach", "metrics", "target"].forEach(type => {
       this.eventSource!.addEventListener(type, (event: MessageEvent) => {
         const data = JSON.parse(event.data);
         this.emit(type, data);
@@ -451,7 +381,6 @@ import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 export class UIController {
   private elements: {
     coachMessage: HTMLElement;
-    actionButton: HTMLButtonElement;
     power: HTMLElement;
     hr: HTMLElement;
     cadence: HTMLElement;
@@ -460,12 +389,9 @@ export class UIController {
     targetText: HTMLElement;
   };
 
-  private onAction: ((action: string) => void) | null = null;
-
   constructor() {
     this.elements = {
       coachMessage: document.getElementById("coach-message")!,
-      actionButton: document.getElementById("action-button") as HTMLButtonElement,
       power: document.getElementById("metric-power")!,
       hr: document.getElementById("metric-hr")!,
       cadence: document.getElementById("metric-cadence")!,
@@ -473,31 +399,10 @@ export class UIController {
       targetOverlay: document.getElementById("target-overlay")!,
       targetText: document.getElementById("target-text")!,
     };
-
-    this.elements.actionButton.addEventListener("click", () => {
-      const action = this.elements.actionButton.dataset.action;
-      if (action && this.onAction) {
-        this.onAction(action);
-      }
-    });
-  }
-
-  setActionHandler(handler: (action: string) => void) {
-    this.onAction = handler;
   }
 
   updateCoach(event: CoachEvent) {
     this.elements.coachMessage.textContent = event.message;
-
-    if (event.button) {
-      this.elements.actionButton.textContent = event.button.text;
-      this.elements.actionButton.dataset.action = event.button.action;
-      this.elements.actionButton.classList.remove("hidden");
-    }
-  }
-
-  clearButton() {
-    this.elements.actionButton.classList.add("hidden");
   }
 
   updateMetrics(event: MetricsEvent) {
@@ -548,21 +453,7 @@ const ui = new UIController();
 sse.on("coach", (data) => ui.updateCoach(data as CoachEvent));
 sse.on("metrics", (data) => ui.updateMetrics(data as MetricsEvent));
 sse.on("target", (data) => ui.updateTarget(data as TargetEvent | null));
-sse.on("clear-button", () => ui.clearButton());
 sse.on("connected", () => ui.updateCoach({ message: "Connected. Warming up..." }));
-
-// Handle button clicks
-ui.setActionHandler(async (action) => {
-  try {
-    await fetch("/api/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, timestamp: Date.now() }),
-    });
-  } catch (error) {
-    console.error("Failed to send action:", error);
-  }
-});
 
 // Start connection
 sse.connect();
@@ -621,7 +512,7 @@ html, body {
 
 ### Touch Target Sizes
 
-All interactive elements should have minimum touch targets of 44x44 points (Apple HIG). The action button uses `px-16 py-6` (64px x 56px minimum).
+All interactive elements should have minimum touch targets of 44x44 points (Apple HIG).
 
 ### Landscape Optimization
 
@@ -687,8 +578,7 @@ import { broadcast } from "./sse";
 // After 5 seconds, send a coach message
 setTimeout(() => {
   broadcast("coach", {
-    message: "Ready for a 30-minute endurance ride?",
-    button: { text: "Let's go", action: "start_workout" }
+    message: "Ready for a 30-minute endurance ride?"
   });
 }, 5000);
 ```
@@ -699,7 +589,7 @@ setTimeout(() => {
 
 1. **Connection status indicator**: Show when SSE is disconnected/reconnecting
 2. **Audio feedback**: Optional sounds for events (if coach logic requests)
-3. **Haptic feedback**: Vibration on button press (via Vibration API)
+3. **Haptic feedback**: Vibration on events (via Vibration API)
 4. **PWA manifest**: For "Add to Home Screen" capability
 5. **Offline handling**: Graceful degradation when connection lost
 
@@ -712,7 +602,7 @@ This plan creates a minimal, focused cycling coach UI with:
 - **Server**: Bun.serve with routes for HTML, static files, SSE, and POST
 - **Styling**: Tailwind CSS via CLI (no complex build chain)
 - **Client**: TypeScript bundled by Bun for browser
-- **Communication**: SSE pushes coach messages/metrics; POST confirms button clicks
+- **Communication**: SSE pushes coach messages/metrics to client
 - **iPad optimized**: Full viewport, touch-friendly, landscape-oriented
 
 The architecture keeps complexity low while providing real-time coach interaction through a clean, distraction-free interface.
