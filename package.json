@@ -18,7 +18,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.12",
     "fit-file-parser": "^2.2.1"
   }
 }

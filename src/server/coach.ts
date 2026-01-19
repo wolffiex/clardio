@@ -1,11 +1,10 @@
 /**
- * Coach - Anthropic SDK integration
+ * Coach - Claude Agent SDK integration
  *
  * Run directly to test: bun src/server/coach.ts
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-schema";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   buildSystemPrompt,
   responseSchema,
@@ -13,16 +12,13 @@ import {
 } from "./coach-prompt";
 import type { MetricsEvent } from "../shared/types";
 
-const client = new Anthropic();
-
-type Message = Anthropic.MessageParam;
-
 let systemPrompt: string | null = null;
-let messages: Message[] = [];
+let sessionId: string | null = null;
 
-export async function initCoach(): Promise<void> {
+export async function initCoach(): Promise<string> {
   systemPrompt = await buildSystemPrompt();
-  messages = [];
+  sessionId = null;
+  return systemPrompt;
 }
 
 export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse> {
@@ -32,29 +28,65 @@ export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse>
 
   const userMessage = `power:${metrics.power}W hr:${metrics.hr}bpm cadence:${metrics.cadence}rpm elapsed:${metrics.elapsed}s`;
 
-  messages.push({ role: "user", content: userMessage });
-
-  const response = await client.beta.messages.parse({
+  const options: Parameters<typeof query>[0]["options"] = {
+    systemPrompt: systemPrompt!,
     model: "claude-sonnet-4-5-20250929",
-    max_tokens: 256,
-    system: systemPrompt!,
-    messages,
-    output_format: betaJSONSchemaOutputFormat(responseSchema),
-  });
+    maxTurns: 1,
+    outputFormat: {
+      type: "json_schema",
+      schema: responseSchema,
+    },
+    tools: [], // No tools - just respond with structured output
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+  };
 
-  const parsed = response.parsed_output as CoachResponse;
-
-  // Store raw text for conversation history
-  const content = response.content[0];
-  if (content.type === "text") {
-    messages.push({ role: "assistant", content: content.text });
+  // Resume session if we have one
+  if (sessionId) {
+    options.resume = sessionId;
   }
 
-  return parsed;
+  const result = query({ prompt: userMessage, options });
+
+  let response: CoachResponse | null = null;
+
+  for await (const message of result) {
+    // Capture session ID from init message
+    if (message.type === "system" && message.subtype === "init") {
+      sessionId = message.session_id;
+    }
+
+    // Extract structured output from StructuredOutput tool use
+    if (message.type === "assistant") {
+      const content = message.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "tool_use" && block.name === "StructuredOutput") {
+            response = block.input as CoachResponse;
+          }
+        }
+      }
+    }
+
+    // Also check result for structured_output (in case of success)
+    if (message.type === "result" && (message as any).structured_output) {
+      response = (message as any).structured_output as CoachResponse;
+    }
+  }
+
+  if (!response) {
+    throw new Error("No response from coach");
+  }
+
+  return response;
 }
 
 export function resetCoach(): void {
-  messages = [];
+  sessionId = null;
+}
+
+export function getSessionId(): string | null {
+  return sessionId;
 }
 
 // Test harness
@@ -77,6 +109,7 @@ if (import.meta.main) {
     if (response.target) {
       console.log(`  target: ${response.target.power}W ${response.target.cadence}rpm${response.target.duration ? ` for ${response.target.duration}s` : " (baseline)"}`);
     }
+    console.log(`  session: ${sessionId}`);
     console.log();
   }
 }
