@@ -4,20 +4,148 @@
  * Connects to BLE devices and POSTs sensor data to the server.
  *
  * Run with:
- *   sudo NOBLE_HCI_DEVICE_ID=1 npx tsx src/bluetooth/sensor-bridge.ts
+ *   sudo bun run sensors
  *
- * Environment variables:
- *   NOBLE_HCI_DEVICE_ID - HCI device index (default: 1 for USB dongle)
- *                         Use `hciconfig` to list available adapters
+ * The bridge will automatically:
+ *   - Find the Realtek USB dongle (which can move between hci indices)
+ *   - Ensure the Bluetooth service is running
+ *   - Retry on adapter failures
  *
- * Note: Requires root/sudo for BLE scanning. Use the USB Bluetooth dongle
- * (hci1) rather than the built-in Intel adapter (hci0) for reliable scanning.
+ * Note: Requires root/sudo for BLE scanning.
  */
 
-// Set default HCI device if not specified (USB dongle = hci1)
-if (!process.env.NOBLE_HCI_DEVICE_ID) {
-  process.env.NOBLE_HCI_DEVICE_ID = "1";
+import { execSync } from "child_process";
+
+// ============================================================================
+// Bluetooth Adapter Detection
+// ============================================================================
+
+/**
+ * Find the Realtek USB Bluetooth dongle by parsing hciconfig output.
+ * The dongle can appear at different indices (hci0, hci1, hci2, etc.)
+ * depending on boot order and USB resets.
+ */
+function findRealtekAdapter(): number | null {
+  try {
+    const output = execSync("hciconfig -a", { encoding: "utf-8" });
+    const blocks = output.split(/^(hci\d+):/m).slice(1);
+
+    for (let i = 0; i < blocks.length; i += 2) {
+      const hciName = blocks[i];
+      const hciInfo = blocks[i + 1] || "";
+
+      // Look for Realtek manufacturer (93)
+      if (hciName && hciInfo.includes("Manufacturer: Realtek")) {
+        const match = hciName.match(/hci(\d+)/);
+        if (match && match[1]) {
+          return parseInt(match[1], 10);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[BLE] Failed to run hciconfig:", err);
+  }
+  return null;
 }
+
+/**
+ * Check if the Bluetooth service is running and start it if not.
+ */
+function ensureBluetoothService(): boolean {
+  try {
+    const status = execSync("systemctl is-active bluetooth", {
+      encoding: "utf-8",
+    }).trim();
+    if (status === "active") {
+      return true;
+    }
+  } catch {
+    // Service not active
+  }
+
+  console.log("[BLE] Bluetooth service not running, attempting to start...");
+  try {
+    execSync("systemctl start bluetooth", { encoding: "utf-8" });
+    // Give it a moment to initialize
+    execSync("sleep 1");
+    console.log("[BLE] Bluetooth service started");
+    return true;
+  } catch (err) {
+    console.error("[BLE] Failed to start Bluetooth service:", err);
+    return false;
+  }
+}
+
+/**
+ * Bring up an HCI adapter if it's down.
+ */
+function ensureAdapterUp(hciIndex: number): boolean {
+  try {
+    const output = execSync(`hciconfig hci${hciIndex}`, { encoding: "utf-8" });
+    if (output.includes("DOWN")) {
+      console.log(`[BLE] Adapter hci${hciIndex} is DOWN, bringing it up...`);
+      execSync(`hciconfig hci${hciIndex} up`);
+      console.log(`[BLE] Adapter hci${hciIndex} is now UP`);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[BLE] Failed to bring up hci${hciIndex}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Initialize Bluetooth: find adapter, ensure service running, bring adapter up.
+ * Returns the HCI index to use, or null if initialization failed.
+ */
+function initializeBluetooth(): number | null {
+  // First ensure the Bluetooth service is running
+  if (!ensureBluetoothService()) {
+    console.error("[BLE] Cannot proceed without Bluetooth service");
+    return null;
+  }
+
+  // Check if user specified an adapter
+  if (process.env.NOBLE_HCI_DEVICE_ID) {
+    const specified = parseInt(process.env.NOBLE_HCI_DEVICE_ID, 10);
+    console.log(`[BLE] Using user-specified adapter: hci${specified}`);
+    ensureAdapterUp(specified);
+    return specified;
+  }
+
+  // Auto-detect Realtek adapter
+  const realtekIndex = findRealtekAdapter();
+  if (realtekIndex !== null) {
+    console.log(`[BLE] Found Realtek USB dongle at hci${realtekIndex}`);
+    ensureAdapterUp(realtekIndex);
+    return realtekIndex;
+  }
+
+  // Fallback: try to find any UP adapter
+  console.warn("[BLE] Realtek adapter not found, looking for any available adapter...");
+  try {
+    const output = execSync("hciconfig", { encoding: "utf-8" });
+    const match = output.match(/^(hci\d+):.*\n\s+.*UP/m);
+    if (match && match[1]) {
+      const idx = parseInt(match[1].replace("hci", ""), 10);
+      console.log(`[BLE] Using fallback adapter: hci${idx}`);
+      return idx;
+    }
+  } catch {
+    // Ignore
+  }
+
+  console.error("[BLE] No Bluetooth adapter found!");
+  return null;
+}
+
+// Initialize and set the HCI device before importing noble
+const hciIndex = initializeBluetooth();
+if (hciIndex === null) {
+  console.error("[BLE] Bluetooth initialization failed. Exiting.");
+  process.exit(1);
+}
+process.env.NOBLE_HCI_DEVICE_ID = String(hciIndex);
 
 import noble, {
   type Peripheral,
@@ -205,7 +333,7 @@ async function connectAndSubscribe(peripheral: Peripheral): Promise<void> {
   return new Promise((resolve, reject) => {
     peripheral.connect(async (error) => {
       if (error) {
-        console.error(`[BLE] Failed to connect to ${deviceName}:`, error.message);
+        console.error(`[BLE] Failed to connect to ${deviceName}:`, error);
         reject(error);
         return;
       }
@@ -243,7 +371,7 @@ async function connectAndSubscribe(peripheral: Peripheral): Promise<void> {
       peripheral.discoverAllServicesAndCharacteristics(
         async (error, services, characteristics) => {
           if (error) {
-            console.error(`[BLE] Discovery error for ${deviceName}:`, error.message);
+            console.error(`[BLE] Discovery error for ${deviceName}:`, error);
             reject(error);
             return;
           }
@@ -332,10 +460,57 @@ function logStatus(): void {
   );
 }
 
+/**
+ * Attempt to recover from Bluetooth adapter failure.
+ * Tries to restart the service, find the adapter, and reset noble.
+ */
+function attemptRecovery(): void {
+  console.log("[BLE] Attempting Bluetooth recovery...");
+
+  // Ensure the service is running
+  if (!ensureBluetoothService()) {
+    console.error("[BLE] Recovery failed: could not start Bluetooth service");
+    console.log(`[BLE] Will retry in ${CONFIG.reconnectDelay / 1000}s...`);
+    setTimeout(attemptRecovery, CONFIG.reconnectDelay);
+    return;
+  }
+
+  // Find the adapter (it may have changed index)
+  const newIndex = findRealtekAdapter();
+  if (newIndex === null) {
+    console.error("[BLE] Recovery failed: could not find Realtek adapter");
+    console.log("[BLE] Try running: sudo usbreset \"2357:0604\"");
+    console.log(`[BLE] Will retry in ${CONFIG.reconnectDelay / 1000}s...`);
+    setTimeout(attemptRecovery, CONFIG.reconnectDelay);
+    return;
+  }
+
+  // Bring the adapter up
+  if (!ensureAdapterUp(newIndex)) {
+    console.error("[BLE] Recovery failed: could not bring adapter up");
+    console.log(`[BLE] Will retry in ${CONFIG.reconnectDelay / 1000}s...`);
+    setTimeout(attemptRecovery, CONFIG.reconnectDelay);
+    return;
+  }
+
+  // Check if the adapter index changed
+  const currentIndex = parseInt(process.env.NOBLE_HCI_DEVICE_ID || "0", 10);
+  if (newIndex !== currentIndex) {
+    console.log(`[BLE] Adapter moved from hci${currentIndex} to hci${newIndex}`);
+    console.log("[BLE] NOTE: Noble cannot switch adapters at runtime.");
+    console.log("[BLE] Restarting the sensor bridge is recommended.");
+    // We'll try anyway - noble might pick it up if it re-initializes
+    process.env.NOBLE_HCI_DEVICE_ID = String(newIndex);
+  }
+
+  console.log("[BLE] Recovery complete - noble should detect the adapter");
+}
+
 async function main(): Promise<void> {
   console.log("=".repeat(60));
   console.log("Clardio Bluetooth Sensor Bridge");
   console.log("=".repeat(60));
+  console.log(`Using adapter: hci${process.env.NOBLE_HCI_DEVICE_ID}`);
   console.log(`Target devices:`);
   console.log(`  - Gymnasticon (K2Pi): ${CONFIG.devices.gymnasticon}`);
   console.log(`  - COROS PACE 3: ${CONFIG.devices.corosPace3}`);
@@ -348,6 +523,19 @@ async function main(): Promise<void> {
     if (newState === "poweredOn") {
       console.log("[BLE] Starting scan for devices...");
       noble.startScanning([], true); // Allow duplicates for reconnection
+    } else if (newState === "poweredOff") {
+      noble.stopScanning();
+      console.log("[BLE] Adapter powered off - attempting recovery...");
+
+      // Clear connection state
+      state.connected.gymnasticon = false;
+      state.connected.corosPace3 = false;
+      peripherals.clear();
+
+      // Try to recover
+      setTimeout(() => {
+        attemptRecovery();
+      }, CONFIG.reconnectDelay);
     } else {
       noble.stopScanning();
     }

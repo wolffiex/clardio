@@ -24,12 +24,59 @@ Claude controls the screen - this is not a chat interface. The coach is:
 
 ## Bluetooth Troubleshooting
 
-Run sensor bridge with the USB dongle (hci1):
+### Find the USB dongle's HCI index
+
+The USB dongle can change index between reboots or resets. Check with:
 ```bash
-sudo NOBLE_HCI_DEVICE_ID=1 bun run sensors
+hciconfig -a
+```
+Look for the Realtek adapter (manufacturer 93). It might be hci1, hci2, etc.
+
+### Check if Bluetooth service is running
+
+The Bluetooth service can die silently. If `bluetoothctl` hangs or scans return nothing:
+```bash
+systemctl status bluetooth
+sudo systemctl start bluetooth
 ```
 
-If the USB dongle becomes unresponsive with timeout errors, reset it:
+### Commands that hang when service is down
+
+These commands will hang indefinitely if the Bluetooth service is dead. Always wrap with `timeout`:
+```bash
+timeout 10 bluetoothctl devices              # hangs without service
+timeout 10 hcitool -i hci2 lescan            # hangs without service
+timeout 10 btmgmt --index 2 find -l          # hangs without service
+```
+
+Safe commands that don't hang:
+```bash
+hciconfig -a                                  # always works
+systemctl status bluetooth                    # always works
+```
+
+### Scan for devices
+
+Verify the adapter can see devices (replace `2` with your HCI index):
+```bash
+sudo timeout 10 btmgmt --index 2 find -l
+```
+
+### Run sensor bridge
+
+The sensor bridge auto-detects the Realtek USB dongle and starts the Bluetooth service if needed:
+```bash
+sudo bun run sensors
+```
+
+To override auto-detection:
+```bash
+sudo NOBLE_HCI_DEVICE_ID=2 bun run sensors
+```
+
+### Reset unresponsive dongle
+
+If the USB dongle becomes unresponsive with timeout errors:
 ```bash
 sudo usbreset "2357:0604"
 ```
