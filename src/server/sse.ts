@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { CoachEvent, MetricsEvent, TargetEvent, SetTargetPayload, WorkoutEndEvent, SSEEventType } from "../shared/types";
+import type { MetricsEvent, SSEEventType } from "../shared/types";
 
 const encoder = new TextEncoder();
 const emitter = new EventEmitter();
@@ -74,24 +74,8 @@ export function handleSSE(req: Request): Response {
 }
 
 // Public API for broadcasting events to all connected clients
-export function broadcastCoach(data: CoachEvent): void {
-  emitter.emit("broadcast", "coach", data);
-}
-
 export function broadcastMetrics(data: MetricsEvent): void {
   emitter.emit("broadcast", "metrics", data);
-}
-
-export function broadcastTarget(data: TargetEvent | null): void {
-  emitter.emit("broadcast", "target", data);
-}
-
-export function broadcastSetTarget(data: SetTargetPayload | null): void {
-  emitter.emit("broadcast", "target", data);
-}
-
-export function broadcastWorkoutEnd(data: WorkoutEndEvent): void {
-  emitter.emit("broadcast", "workout_end", data);
 }
 
 export function broadcast(eventType: SSEEventType, data: unknown): void {

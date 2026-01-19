@@ -1,6 +1,6 @@
 import type { Server } from "bun";
-import { handleSSE, broadcast, broadcastCoach, broadcastMetrics, broadcastTarget, broadcastSetTarget, broadcastWorkoutEnd } from "./sse";
-import { handleCoach, handleMetrics, handleTarget, handleEnd } from "./routes";
+import { handleSSE, broadcast, broadcastMetrics } from "./sse";
+import { handleMetrics } from "./routes";
 import { join } from "node:path";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
@@ -19,21 +19,8 @@ export function createServer(port: number = 0): Server {
         return handleSSE(req);
       }
 
-      // Tool endpoints (for coach integration)
-      if (pathname === "/api/coach") {
-        return handleCoach(req);
-      }
-
       if (pathname === "/api/metrics") {
         return handleMetrics(req);
-      }
-
-      if (pathname === "/api/target") {
-        return handleTarget(req);
-      }
-
-      if (pathname === "/api/end") {
-        return handleEnd(req);
       }
 
       // Static file serving
@@ -61,7 +48,7 @@ export function createServer(port: number = 0): Server {
 }
 
 // Export utilities for external use
-export { broadcast, broadcastCoach, broadcastMetrics, broadcastTarget, broadcastSetTarget, broadcastWorkoutEnd };
+export { broadcast, broadcastMetrics };
 
 // Run server if this file is executed directly
 if (import.meta.main) {
