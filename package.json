@@ -8,7 +8,8 @@
     "build": "bun build ./src/client/main.ts --outfile ./public/js/client.js --target browser",
     "start": "bun src/server/index.ts",
     "test": "bun test",
-    "sensors": "uv run clardio-sensors"
+    "sensors": "uv run clardio-sensors",
+    "sim": "bun src/scripts/sim.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
