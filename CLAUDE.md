@@ -64,14 +64,11 @@ sudo timeout 10 btmgmt --index 2 find -l
 
 ### Run sensor bridge
 
-The sensor bridge auto-detects the Realtek USB dongle and starts the Bluetooth service if needed:
+The sensor bridge uses Python + bleak (via BlueZ D-Bus API). It auto-starts the Bluetooth service if needed:
 ```bash
-sudo bun run sensors
-```
-
-To override auto-detection:
-```bash
-sudo NOBLE_HCI_DEVICE_ID=2 bun run sensors
+bun run sensors
+# or directly:
+uv run clardio-sensors
 ```
 
 ### Reset unresponsive dongle
@@ -88,16 +85,18 @@ sudo usbreset "2357:0604"
 - Tailwind CSS (via CDN)
 - Anthropic SDK for Claude API
 - No React - plain HTML + TS
+- Python + bleak (Bluetooth sensor bridge)
 
 ## Project Structure
 
 ```
-src/server/    # Bun server (SSE, routes)
-src/client/    # Browser client (SSE handling, UI)
-src/shared/    # Shared types
-public/        # Static files (HTML, built JS)
-docs/          # Planning documents
-tests/         # Bun tests
+src/server/           # Bun server (SSE, routes)
+src/client/           # Browser client (SSE handling, UI)
+src/shared/           # Shared types
+src/clardio_sensors/  # Python Bluetooth sensor bridge (bleak)
+public/               # Static files (HTML, built JS)
+docs/                 # Planning documents
+tests/                # Bun tests
 ```
 
 ## API Endpoints

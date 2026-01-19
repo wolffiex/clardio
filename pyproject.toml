@@ -1,0 +1,20 @@
+[project]
+name = "clardio-sensors"
+version = "0.1.0"
+description = "Bluetooth sensor bridge for Clardio"
+readme = "README.md"
+authors = [
+    { name = "adam", email = "adam@bongo" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "bleak>=0.22.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+clardio-sensors = "clardio_sensors:main"
+
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
