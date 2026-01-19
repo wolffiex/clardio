@@ -2,11 +2,22 @@
  * Bluetooth Sensor Bridge for Clardio
  *
  * Connects to BLE devices and POSTs sensor data to the server.
- * Run with: npx ts-node src/bluetooth/sensor-bridge.ts
- * Or with Node after compiling: node dist/bluetooth/sensor-bridge.js
  *
- * Note: @abandonware/noble requires Node.js (not Bun) due to native bindings.
+ * Run with:
+ *   sudo NOBLE_HCI_DEVICE_ID=1 npx tsx src/bluetooth/sensor-bridge.ts
+ *
+ * Environment variables:
+ *   NOBLE_HCI_DEVICE_ID - HCI device index (default: 1 for USB dongle)
+ *                         Use `hciconfig` to list available adapters
+ *
+ * Note: Requires root/sudo for BLE scanning. Use the USB Bluetooth dongle
+ * (hci1) rather than the built-in Intel adapter (hci0) for reliable scanning.
  */
+
+// Set default HCI device if not specified (USB dongle = hci1)
+if (!process.env.NOBLE_HCI_DEVICE_ID) {
+  process.env.NOBLE_HCI_DEVICE_ID = "1";
+}
 
 import noble, {
   type Peripheral,
