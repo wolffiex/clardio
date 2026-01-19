@@ -8,6 +8,7 @@ const PUBLIC_DIR = join(import.meta.dir, "../../public");
 export function createServer(port: number = 0): Server {
   return Bun.serve({
     port,
+    idleTimeout: 0, // Disable timeout for SSE connections
 
     async fetch(req) {
       const url = new URL(req.url);
