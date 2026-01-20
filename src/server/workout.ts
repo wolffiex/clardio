@@ -5,7 +5,7 @@
  */
 
 import type { MetricsEvent, CoachEvent, TargetEvent } from "../shared/types";
-import { initCoach, sendMetrics, resetCoach } from "./coach";
+import { initCoach, sendStart, sendMetrics, resetCoach } from "./coach";
 import { broadcast } from "./sse";
 
 const COACH_INTERVAL_MS = 20_000; // 20 seconds
@@ -139,6 +139,24 @@ export async function startWorkout(): Promise<void> {
   coachTimer = setInterval(onCoachTick, COACH_INTERVAL_MS);
 
   log(`Workout started, coach interval: ${COACH_INTERVAL_MS / 1000}s`);
+
+  // Get initial greeting from coach
+  try {
+    const response = await sendStart();
+    log(`Coach: "${response.message}"`);
+    broadcast("coach", { text: response.message } satisfies CoachEvent);
+
+    if (response.target) {
+      const targetEvent: TargetEvent = {
+        power: response.target.power,
+        cadence: response.target.cadence,
+      };
+      broadcast("target", targetEvent);
+      log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
+    }
+  } catch (err) {
+    log(`Coach start error: ${err}`);
+  }
 }
 
 /**

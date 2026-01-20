@@ -44,6 +44,10 @@ export class UIController {
   // Current target from coach
   private target: CurrentTarget | null = null;
 
+  // Last known values for re-rendering on target change
+  private lastPower: number = 0;
+  private lastCadence: number = 0;
+
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
@@ -89,6 +93,10 @@ export class UIController {
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
     this.elements.time.textContent = formatTime(event.elapsed);
+
+    // Store last values for re-rendering on target change
+    this.lastPower = event.power;
+    this.lastCadence = event.cadence;
 
     // Push to rolling averages
     const powerRolling = this.powerAvg.push(event.power);
@@ -201,6 +209,9 @@ export class UIController {
   updateTarget(event: TargetEvent | null): void {
     if (!event) {
       this.target = null;
+      // Re-render to hide target UI
+      this.updateProgressBar('power', this.lastPower, this.powerAvg.average(), undefined, 'W');
+      this.updateProgressBar('cadence', this.lastCadence, this.cadenceAvg.average(), undefined, 'rpm');
       return;
     }
 
@@ -208,6 +219,10 @@ export class UIController {
       power: event.power,
       cadence: event.cadence,
     };
+
+    // Re-render progress bars with new target
+    this.updateProgressBar('power', this.lastPower, this.powerAvg.average(), this.target.power, 'W');
+    this.updateProgressBar('cadence', this.lastCadence, this.cadenceAvg.average(), this.target.cadence, 'rpm');
   }
 
   /**

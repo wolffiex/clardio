@@ -103,6 +103,8 @@ class UIController {
   powerAvg;
   cadenceAvg;
   target = null;
+  lastPower = 0;
+  lastCadence = 0;
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
@@ -136,6 +138,8 @@ class UIController {
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
     this.elements.time.textContent = formatTime(event.elapsed);
+    this.lastPower = event.power;
+    this.lastCadence = event.cadence;
     const powerRolling = this.powerAvg.push(event.power);
     const cadenceRolling = this.cadenceAvg.push(event.cadence);
     this.updateProgressBar("power", event.power, powerRolling, this.target?.power, "W");
@@ -197,12 +201,16 @@ class UIController {
   updateTarget(event) {
     if (!event) {
       this.target = null;
+      this.updateProgressBar("power", this.lastPower, this.powerAvg.average(), undefined, "W");
+      this.updateProgressBar("cadence", this.lastCadence, this.cadenceAvg.average(), undefined, "rpm");
       return;
     }
     this.target = {
       power: event.power,
       cadence: event.cadence
     };
+    this.updateProgressBar("power", this.lastPower, this.powerAvg.average(), this.target.power, "W");
+    this.updateProgressBar("cadence", this.lastCadence, this.cadenceAvg.average(), this.target.cadence, "rpm");
   }
   setConnectionStatus(status) {
     const dotColors = {

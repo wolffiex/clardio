@@ -21,12 +21,10 @@ export async function initCoach(): Promise<string> {
   return systemPrompt;
 }
 
-export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse> {
+async function sendMessage(userMessage: string): Promise<CoachResponse> {
   if (!systemPrompt) {
     await initCoach();
   }
-
-  const userMessage = `power:${metrics.power}W hr:${metrics.hr}bpm cadence:${metrics.cadence}rpm elapsed:${metrics.elapsed}s`;
 
   const options: Parameters<typeof query>[0]["options"] = {
     systemPrompt: systemPrompt!,
@@ -81,6 +79,15 @@ export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse>
   return response;
 }
 
+export async function sendStart(): Promise<CoachResponse> {
+  return sendMessage("Workout starting.");
+}
+
+export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse> {
+  const userMessage = `power:${metrics.power}W hr:${metrics.hr}bpm cadence:${metrics.cadence}rpm elapsed:${metrics.elapsed}s`;
+  return sendMessage(userMessage);
+}
+
 export function resetCoach(): void {
   sessionId = null;
 }
@@ -107,7 +114,7 @@ if (import.meta.main) {
     const response = await sendMetrics(metrics);
     console.log(`← "${response.message}"`);
     if (response.target) {
-      console.log(`  target: ${response.target.power}W ${response.target.cadence}rpm${response.target.duration ? ` for ${response.target.duration}s` : " (baseline)"}`);
+      console.log(`  target: ${response.target.power}W ${response.target.cadence}rpm`);
     }
     console.log(`  session: ${sessionId}`);
     console.log();
