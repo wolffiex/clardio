@@ -1,6 +1,5 @@
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 import { formatTime } from "./handlers";
-import { CountdownTimer } from "./countdown";
 import { RollingAverage, calculateFillPercent, getProgressColor } from "./rolling-average";
 
 interface UIElements {
@@ -22,9 +21,6 @@ interface UIElements {
   cadenceBarFill: HTMLElement;
   cadenceDelta: HTMLElement;
   cadenceOverTarget: HTMLElement;
-  // Countdown
-  countdownSection: HTMLElement;
-  countdownTime: HTMLElement;
   // Connection
   connectionDot: HTMLElement;
   connectionText: HTMLElement;
@@ -37,33 +33,20 @@ interface CurrentTarget {
 
 /**
  * UI Controller - manages DOM updates with progress bar meters
- *
- * Tracks two types of targets:
- * - baseline: persists until changed (no countdown)
- * - activeTarget: has countdown, reverts to baseline when complete
  */
 export class UIController {
   private elements: UIElements;
-  private countdown: CountdownTimer;
 
   // Rolling averages for smoothing
   private powerAvg: RollingAverage;
   private cadenceAvg: RollingAverage;
 
-  // Baseline target (persists until changed)
-  private baseline: CurrentTarget | null = null;
-
-  // Active target with countdown (reverts to baseline when complete)
-  private activeTarget: CurrentTarget | null = null;
+  // Current target from coach
+  private target: CurrentTarget | null = null;
 
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
-
-    this.countdown = new CountdownTimer(
-      (display) => this.updateCountdownDisplay(display),
-      () => this.revertToBaseline()
-    );
 
     this.elements = {
       coachMessage: document.getElementById("coach-message")!,
@@ -84,9 +67,6 @@ export class UIController {
       cadenceBarFill: document.getElementById("cadence-bar-fill")!,
       cadenceDelta: document.getElementById("cadence-delta")!,
       cadenceOverTarget: document.getElementById("cadence-over-target")!,
-      // Countdown
-      countdownSection: document.getElementById("countdown-section")!,
-      countdownTime: document.getElementById("countdown-time")!,
       // Connection
       connectionDot: document.getElementById("connection-dot")!,
       connectionText: document.getElementById("connection-text")!,
@@ -114,15 +94,12 @@ export class UIController {
     const powerRolling = this.powerAvg.push(event.power);
     const cadenceRolling = this.cadenceAvg.push(event.cadence);
 
-    // Display target: active target takes priority, otherwise show baseline
-    const displayTarget = this.activeTarget || this.baseline;
-
-    // Update progress bars if targets are set
+    // Update progress bars if target is set
     this.updateProgressBar(
       'power',
       event.power,
       powerRolling,
-      displayTarget?.power,
+      this.target?.power,
       'W'
     );
 
@@ -130,7 +107,7 @@ export class UIController {
       'cadence',
       event.cadence,
       cadenceRolling,
-      displayTarget?.cadence,
+      this.target?.cadence,
       'rpm'
     );
   }
@@ -219,61 +196,18 @@ export class UIController {
   }
 
   /**
-   * Update target - handles both baseline and active targets
-   *
-   * - Target WITH remaining: active target (starts countdown, reverts to baseline when done)
-   * - Target WITHOUT remaining: baseline target (persists until changed)
-   * - null: clears all targets
+   * Update target from coach
    */
   updateTarget(event: TargetEvent | null): void {
     if (!event) {
-      // Null target - clear everything
-      this.baseline = null;
-      this.activeTarget = null;
-      this.countdown.setTarget(null);
+      this.target = null;
       return;
     }
 
-    // Check if this is an active target (has remaining/duration) or baseline
-    if (event.remaining !== undefined) {
-      // Active target with countdown
-      this.activeTarget = {
-        power: event.power,
-        cadence: event.cadence,
-      };
-      // Start countdown - will call revertToBaseline when done
-      this.countdown.setTarget(event);
-    } else {
-      // Baseline target (no countdown)
-      this.baseline = {
-        power: event.power,
-        cadence: event.cadence,
-      };
-      // Clear any active target since we're setting a new baseline
-      // (but don't clear countdown - let it finish if running)
-    }
-  }
-
-  /**
-   * Revert display to baseline when active target countdown completes
-   */
-  private revertToBaseline(): void {
-    this.activeTarget = null;
-    // Baseline remains unchanged - UI will show baseline on next metrics update
-  }
-
-  /**
-   * Internal: update countdown display elements
-   */
-  private updateCountdownDisplay(display: { text: string; time: string } | null): void {
-    if (display) {
-      this.elements.countdownTime.textContent = display.time;
-      this.elements.countdownSection.classList.remove("hidden");
-    } else {
-      this.elements.countdownSection.classList.add("hidden");
-      // Note: activeTarget is cleared by revertToBaseline callback
-      // Baseline persists even when countdown ends
-    }
+    this.target = {
+      power: event.power,
+      cadence: event.cadence,
+    };
   }
 
   /**
@@ -293,24 +227,9 @@ export class UIController {
   }
 
   /**
-   * Get current display target (for testing)
-   * Returns activeTarget if set, otherwise baseline
+   * Get current target (for testing)
    */
   getCurrentTarget(): CurrentTarget | null {
-    return this.activeTarget || this.baseline;
-  }
-
-  /**
-   * Get baseline target (for testing)
-   */
-  getBaseline(): CurrentTarget | null {
-    return this.baseline ? { ...this.baseline } : null;
-  }
-
-  /**
-   * Get active target (for testing)
-   */
-  getActiveTarget(): CurrentTarget | null {
-    return this.activeTarget ? { ...this.activeTarget } : null;
+    return this.target ? { ...this.target } : null;
   }
 }

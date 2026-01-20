@@ -13,22 +13,10 @@ export interface MetricsEvent {
   elapsed: number;
 }
 
-// target event - current interval target (from UI countdown)
-// If remaining is present, it's an active target with countdown
-// If remaining is absent, it's a baseline target (persists until changed)
+// target event - current target from coach
 export interface TargetEvent {
   power: number;
   cadence: number;
-  remaining?: number;
-}
-
-// target set by coach tool (POST /api/target)
-// If duration is present, it's an active target that reverts to baseline when complete
-// If duration is absent, it's a baseline target (persists until changed)
-export interface SetTargetPayload {
-  power: number;
-  cadence: number;
-  duration?: number;
 }
 
 // workout_end event - workout completion

@@ -62,92 +62,6 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-// src/client/countdown.ts
-function formatRemaining(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-function formatTargetText(target) {
-  if (target.power !== undefined && target.cadence !== undefined) {
-    return `${target.power}W / ${target.cadence}rpm`;
-  } else if (target.power !== undefined) {
-    return `${target.power}W`;
-  } else if (target.cadence !== undefined) {
-    return `${target.cadence}rpm`;
-  }
-  return "";
-}
-
-class CountdownTimer {
-  intervalId = null;
-  remaining = 0;
-  target = null;
-  callback;
-  onComplete = null;
-  constructor(callback, onComplete) {
-    this.callback = callback;
-    this.onComplete = onComplete || null;
-  }
-  setOnComplete(callback) {
-    this.onComplete = callback;
-  }
-  setTarget(event) {
-    this.clear();
-    if (!event) {
-      this.callback(null);
-      return false;
-    }
-    if (event.remaining === undefined) {
-      return false;
-    }
-    if (event.remaining <= 0) {
-      this.callback(null);
-      if (this.onComplete) {
-        this.onComplete();
-      }
-      return false;
-    }
-    this.target = { power: event.power, cadence: event.cadence };
-    this.remaining = event.remaining;
-    this.updateDisplay();
-    this.intervalId = setInterval(() => {
-      this.remaining--;
-      if (this.remaining <= 0) {
-        this.clear();
-        this.callback(null);
-        if (this.onComplete) {
-          this.onComplete();
-        }
-      } else {
-        this.updateDisplay();
-      }
-    }, 1000);
-    return true;
-  }
-  clear() {
-    if (this.intervalId !== null) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-    this.target = null;
-    this.remaining = 0;
-  }
-  updateDisplay() {
-    if (!this.target)
-      return;
-    const text = formatTargetText(this.target);
-    const time = formatRemaining(this.remaining);
-    this.callback({ text, time });
-  }
-  getRemaining() {
-    return this.remaining;
-  }
-  isActive() {
-    return this.intervalId !== null;
-  }
-}
-
 // src/client/rolling-average.ts
 class RollingAverage {
   values = [];
@@ -186,15 +100,12 @@ function getProgressColor(rollingAvg, target) {
 // src/client/ui.ts
 class UIController {
   elements;
-  countdown;
   powerAvg;
   cadenceAvg;
-  baseline = null;
-  activeTarget = null;
+  target = null;
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
-    this.countdown = new CountdownTimer((display) => this.updateCountdownDisplay(display), () => this.revertToBaseline());
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
       power: document.getElementById("metric-power"),
@@ -213,8 +124,6 @@ class UIController {
       cadenceBarFill: document.getElementById("cadence-bar-fill"),
       cadenceDelta: document.getElementById("cadence-delta"),
       cadenceOverTarget: document.getElementById("cadence-over-target"),
-      countdownSection: document.getElementById("countdown-section"),
-      countdownTime: document.getElementById("countdown-time"),
       connectionDot: document.getElementById("connection-dot"),
       connectionText: document.getElementById("connection-text")
     };
@@ -229,9 +138,8 @@ class UIController {
     this.elements.time.textContent = formatTime(event.elapsed);
     const powerRolling = this.powerAvg.push(event.power);
     const cadenceRolling = this.cadenceAvg.push(event.cadence);
-    const displayTarget = this.activeTarget || this.baseline;
-    this.updateProgressBar("power", event.power, powerRolling, displayTarget?.power, "W");
-    this.updateProgressBar("cadence", event.cadence, cadenceRolling, displayTarget?.cadence, "rpm");
+    this.updateProgressBar("power", event.power, powerRolling, this.target?.power, "W");
+    this.updateProgressBar("cadence", event.cadence, cadenceRolling, this.target?.cadence, "rpm");
   }
   updateProgressBar(type, currentValue, rollingAvg, target, unit) {
     const elements = type === "power" ? {
@@ -288,34 +196,13 @@ class UIController {
   }
   updateTarget(event) {
     if (!event) {
-      this.baseline = null;
-      this.activeTarget = null;
-      this.countdown.setTarget(null);
+      this.target = null;
       return;
     }
-    if (event.remaining !== undefined) {
-      this.activeTarget = {
-        power: event.power,
-        cadence: event.cadence
-      };
-      this.countdown.setTarget(event);
-    } else {
-      this.baseline = {
-        power: event.power,
-        cadence: event.cadence
-      };
-    }
-  }
-  revertToBaseline() {
-    this.activeTarget = null;
-  }
-  updateCountdownDisplay(display) {
-    if (display) {
-      this.elements.countdownTime.textContent = display.time;
-      this.elements.countdownSection.classList.remove("hidden");
-    } else {
-      this.elements.countdownSection.classList.add("hidden");
-    }
+    this.target = {
+      power: event.power,
+      cadence: event.cadence
+    };
   }
   setConnectionStatus(status) {
     const dotColors = {
@@ -328,13 +215,7 @@ class UIController {
     this.elements.connectionText.textContent = status;
   }
   getCurrentTarget() {
-    return this.activeTarget || this.baseline;
-  }
-  getBaseline() {
-    return this.baseline ? { ...this.baseline } : null;
-  }
-  getActiveTarget() {
-    return this.activeTarget ? { ...this.activeTarget } : null;
+    return this.target ? { ...this.target } : null;
   }
 }
 

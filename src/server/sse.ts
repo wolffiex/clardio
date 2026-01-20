@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { MetricsEvent, SSEEventType } from "../shared/types";
+import { startWorkout, stopWorkout, isWorkoutActive } from "./workout";
 
 const encoder = new TextEncoder();
 const emitter = new EventEmitter();
@@ -27,6 +28,9 @@ export function handleSSE(req: Request): Response {
       clientCount++;
       log(`SSE client connected (total: ${clientCount})`);
 
+      // Start workout session
+      startWorkout();
+
       // Send retry interval
       controller.enqueue(encoder.encode("retry: 3000\n\n"));
 
@@ -51,6 +55,9 @@ export function handleSSE(req: Request): Response {
         emitter.off("broadcast", handler);
         clientCount--;
         log(`SSE client disconnected (total: ${clientCount})`);
+
+        // Stop workout session
+        stopWorkout();
         try {
           controller.close();
         } catch {

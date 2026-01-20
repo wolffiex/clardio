@@ -111,20 +111,15 @@ export const responseSchema = {
           description: "Set a new target.",
           properties: {
             power: {
-              anyOf: [{ type: "number" }, { type: "null" }],
-              description: "Target power in watts, or null to clear.",
+              type: "number",
+              description: "Target power in watts.",
             },
             cadence: {
-              anyOf: [{ type: "number" }, { type: "null" }],
-              description: "Target cadence in rpm, or null to clear.",
-            },
-            duration: {
-              anyOf: [{ type: "number" }, { type: "null" }],
-              description:
-                "Duration in seconds for interval. Null for baseline target that persists.",
+              type: "number",
+              description: "Target cadence in rpm.",
             },
           },
-          required: ["power", "cadence", "duration"],
+          required: ["power", "cadence"],
           additionalProperties: false,
         },
         { type: "null" },
@@ -139,9 +134,8 @@ export const responseSchema = {
 export type CoachResponse = {
   message: string;
   target: {
-    power: number | null;
-    cadence: number | null;
-    duration: number | null;
+    power: number;
+    cadence: number;
   } | null;
 };
 
@@ -170,7 +164,7 @@ Use this history to calibrate your expectations. Set targets appropriate for thi
 
 Every response must include:
 - **message**: Short text to display. One line, maybe two. The rider is working hard and can't read paragraphs.
-- **target**: Set power/cadence targets, or null to keep current. Include duration for intervals, null duration for baseline.
+- **target**: Set power/cadence targets, or null to keep current. Adjust targets continuously as needed.
 
 ## What You Receive
 

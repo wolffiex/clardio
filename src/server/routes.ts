@@ -1,5 +1,6 @@
 import type { MetricsEvent } from "../shared/types";
 import { broadcast } from "./sse";
+import { addMetrics } from "./workout";
 
 // Simple logger helper
 function log(message: string) {
@@ -52,6 +53,9 @@ export async function handleMetrics(req: Request): Promise<Response> {
 
     // Broadcast to all SSE clients
     broadcast("metrics", body);
+
+    // Buffer for coach
+    addMetrics(body);
 
     log(`POST /api/metrics → power:${body.power} hr:${body.hr} cadence:${body.cadence} elapsed:${body.elapsed}`);
 
