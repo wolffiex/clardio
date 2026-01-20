@@ -11,8 +11,6 @@ const SERVER = "http://localhost:3000";
 let hr = 120;
 let cadence = 80;
 let power = 150;
-let elapsed = 0;
-let startTime = Date.now();
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -26,8 +24,7 @@ function prompt(question: string): Promise<string> {
 }
 
 async function sendMetrics() {
-  elapsed = Math.floor((Date.now() - startTime) / 1000);
-  const payload = { hr, cadence, power, elapsed };
+  const payload = { hr, cadence, power };
 
   try {
     const res = await fetch(`${SERVER}/api/metrics`, {
@@ -50,7 +47,7 @@ async function loop() {
   console.log("\nSensor Simulator (empty/tab = keep value, q = quit)\n");
 
   while (true) {
-    console.log(`\n--- elapsed: ${Math.floor((Date.now() - startTime) / 1000)}s ---`);
+    console.log("");
 
     const hrInput = await prompt(`HR [${hr}]: `);
     if (hrInput.toLowerCase() === "q") break;

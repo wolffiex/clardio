@@ -1,6 +1,6 @@
-import type { MetricsEvent } from "../shared/types";
+import type { MetricsEvent, MetricsBroadcast } from "../shared/types";
 import { broadcast } from "./sse";
-import { addMetrics } from "./workout";
+import { addMetrics, getElapsed } from "./workout";
 
 // Simple logger helper
 function log(message: string) {
@@ -21,7 +21,6 @@ function isValidMetricsPayload(body: unknown): body is MetricsEvent {
   if (typeof obj.power !== "number") return false;
   if (typeof obj.hr !== "number") return false;
   if (typeof obj.cadence !== "number") return false;
-  if (typeof obj.elapsed !== "number") return false;
   return true;
 }
 
@@ -46,18 +45,19 @@ export async function handleMetrics(req: Request): Promise<Response> {
 
     if (!isValidMetricsPayload(body)) {
       return Response.json(
-        { ok: false, error: "Invalid payload: power (number), hr (number), cadence (number), and elapsed (number) are required" } satisfies ToolResponse,
+        { ok: false, error: "Invalid payload: power (number), hr (number), and cadence (number) are required" } satisfies ToolResponse,
         { status: 400 }
       );
     }
 
-    // Broadcast to all SSE clients
-    broadcast("metrics", body);
+    // Add server-side elapsed time and broadcast to all SSE clients
+    const broadcastData: MetricsBroadcast = { ...body, elapsed: getElapsed() };
+    broadcast("metrics", broadcastData);
 
     // Buffer for coach
     addMetrics(body);
 
-    log(`POST /api/metrics → power:${body.power} hr:${body.hr} cadence:${body.cadence} elapsed:${body.elapsed}`);
+    log(`POST /api/metrics → power:${body.power} hr:${body.hr} cadence:${body.cadence}`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

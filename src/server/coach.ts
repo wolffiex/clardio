@@ -15,6 +15,11 @@ import type { MetricsEvent } from "../shared/types";
 let systemPrompt: string | null = null;
 let sessionId: string | null = null;
 
+function log(message: string) {
+  const time = new Date().toLocaleTimeString("en-US", { hour12: false });
+  console.log(`[${time}] ${message}`);
+}
+
 export async function initCoach(): Promise<string> {
   systemPrompt = await buildSystemPrompt();
   sessionId = null;
@@ -25,6 +30,8 @@ async function sendMessage(userMessage: string): Promise<CoachResponse> {
   if (!systemPrompt) {
     await initCoach();
   }
+
+  log(`Coach prompt: "${userMessage}"`);
 
   const options: Parameters<typeof query>[0]["options"] = {
     systemPrompt: systemPrompt!,

@@ -49,7 +49,6 @@ class SensorState:
     power: int = 0
     hr: int = 0
     cadence: int = 0
-    start_time: float = field(default_factory=time.time)
     connected_gymnasticon: bool = False
     connected_coros: bool = False
     # For cadence calculation
@@ -58,6 +57,7 @@ class SensorState:
 
 
 state = SensorState()
+log_start_time = time.time()  # For status logging only
 
 
 # ============================================================================
@@ -249,13 +249,10 @@ async def post_metrics_loop() -> None:
     """POST metrics to the server every second."""
     async with aiohttp.ClientSession() as session:
         while True:
-            elapsed = int(time.time() - state.start_time)
-
             metrics = {
                 "power": state.power,
                 "hr": state.hr,
                 "cadence": state.cadence,
-                "elapsed": elapsed,
             }
 
             try:
@@ -273,7 +270,7 @@ async def log_status_loop() -> None:
     """Log status every 5 seconds."""
     while True:
         await asyncio.sleep(5.0)
-        elapsed = int(time.time() - state.start_time)
+        elapsed = int(time.time() - log_start_time)
         gym = "connected" if state.connected_gymnasticon else "disconnected"
         coros = "connected" if state.connected_coros else "disconnected"
 

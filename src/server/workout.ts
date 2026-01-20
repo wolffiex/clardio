@@ -58,11 +58,11 @@ function summarizeMetrics(samples: MetricsEvent[]): string {
     const hrTrend = getTrend(firstHr, secondHr, 3);
     const cadenceTrend = getTrend(firstCadence, secondCadence, 3);
 
-    return `elapsed:${latest.elapsed}s | power:${avgPower}W${powerTrend} hr:${avgHr}bpm${hrTrend} cadence:${avgCadence}rpm${cadenceTrend} (${samples.length} samples)`;
+    return `elapsed:${getElapsed()}s | power:${avgPower}W${powerTrend} hr:${avgHr}bpm${hrTrend} cadence:${avgCadence}rpm${cadenceTrend} (${samples.length} samples)`;
   }
 
   // Not enough for trends
-  return `elapsed:${latest.elapsed}s | power:${avgPower}W hr:${avgHr}bpm cadence:${avgCadence}rpm (${samples.length} samples)`;
+  return `elapsed:${getElapsed()}s | power:${avgPower}W hr:${avgHr}bpm cadence:${avgCadence}rpm (${samples.length} samples)`;
 }
 
 function getTrend(first: number, second: number, threshold: number): string {
@@ -190,4 +190,12 @@ export function addMetrics(metrics: MetricsEvent): void {
  */
 export function isWorkoutActive(): boolean {
   return workoutActive;
+}
+
+/**
+ * Get elapsed time in seconds since workout started
+ */
+export function getElapsed(): number {
+  if (!buffer || !workoutActive) return 0;
+  return Math.floor((Date.now() - buffer.startTime) / 1000);
 }

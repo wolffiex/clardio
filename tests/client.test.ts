@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import type { CoachEvent, MetricsEvent, TargetEvent } from "../src/shared/types";
+import type { CoachEvent, MetricsBroadcast, TargetEvent } from "../src/shared/types";
 import { calculateFillPercent, getProgressColor } from "../src/client/progress";
 import { parseSSEEvent, formatTime } from "../src/client/handlers";
 
@@ -12,7 +12,7 @@ describe("parseSSEEvent", () => {
 
   test("parses metrics event", () => {
     const data = '{"power":200,"hr":145,"cadence":90,"elapsed":3600}';
-    const result = parseSSEEvent<MetricsEvent>(data);
+    const result = parseSSEEvent<MetricsBroadcast>(data);
     expect(result.power).toBe(200);
     expect(result.hr).toBe(145);
     expect(result.cadence).toBe(90);

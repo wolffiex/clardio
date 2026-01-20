@@ -5,11 +5,15 @@ export interface CoachEvent {
   text: string;
 }
 
-// metrics event - live data
+// metrics event - POST payload from sensors (no elapsed - server tracks it)
 export interface MetricsEvent {
   power: number;
   hr: number;
   cadence: number;
+}
+
+// metrics event broadcast to clients (includes server-calculated elapsed)
+export interface MetricsBroadcast extends MetricsEvent {
   elapsed: number;
 }
 
