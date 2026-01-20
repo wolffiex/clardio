@@ -105,26 +105,20 @@ export const responseSchema = {
       description: "Short message to display to the rider. Always required.",
     },
     target: {
-      anyOf: [
-        {
-          type: "object",
-          description: "Set a new target.",
-          properties: {
-            power: {
-              type: "number",
-              description: "Target power in watts.",
-            },
-            cadence: {
-              type: "number",
-              description: "Target cadence in rpm.",
-            },
-          },
-          required: ["power", "cadence"],
-          additionalProperties: false,
+      type: "object",
+      description: "Power and cadence targets for the rider.",
+      properties: {
+        power: {
+          type: "number",
+          description: "Target power in watts.",
         },
-        { type: "null" },
-      ],
-      description: "Set a new target, or null to keep current target.",
+        cadence: {
+          type: "number",
+          description: "Target cadence in rpm.",
+        },
+      },
+      required: ["power", "cadence"],
+      additionalProperties: false,
     },
   },
   required: ["message", "target"],
@@ -136,7 +130,7 @@ export type CoachResponse = {
   target: {
     power: number;
     cadence: number;
-  } | null;
+  };
 };
 
 export function getSystemPrompt(workoutHistory: string): string {
@@ -164,7 +158,7 @@ Use this history to calibrate your expectations. Set targets appropriate for thi
 
 Every response must include:
 - **message**: Short text to display. One line, maybe two. The rider is working hard and can't read paragraphs.
-- **target**: Set power/cadence targets, or null to keep current. Adjust targets continuously as needed.
+- **target**: Power and cadence targets. Always set both values based on what you want the rider to do right now.
 
 ## What You Receive
 

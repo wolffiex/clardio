@@ -115,15 +115,13 @@ async function onCoachTick() {
     // Broadcast coach message
     broadcast("coach", { text: response.message } satisfies CoachEvent);
 
-    // Broadcast target if set
-    if (response.target) {
-      const targetEvent: TargetEvent = {
-        power: response.target.power,
-        cadence: response.target.cadence,
-      };
-      broadcast("target", targetEvent);
-      log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
-    }
+    // Broadcast target
+    const targetEvent: TargetEvent = {
+      power: response.target.power,
+      cadence: response.target.cadence,
+    };
+    broadcast("target", targetEvent);
+    log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
   } catch (err) {
     log(`Coach error: ${err}`);
   }
@@ -163,14 +161,12 @@ export async function startWorkout(): Promise<void> {
     log(`Coach: "${response.message}"`);
     broadcast("coach", { text: response.message } satisfies CoachEvent);
 
-    if (response.target) {
-      const targetEvent: TargetEvent = {
-        power: response.target.power,
-        cadence: response.target.cadence,
-      };
-      broadcast("target", targetEvent);
-      log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
-    }
+    const targetEvent: TargetEvent = {
+      power: response.target.power,
+      cadence: response.target.cadence,
+    };
+    broadcast("target", targetEvent);
+    log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
   } catch (err) {
     log(`Coach start error: ${err}`);
   }
