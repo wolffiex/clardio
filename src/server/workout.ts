@@ -76,6 +76,12 @@ function buildCoachPrompt(newSamples: TimestampedMetrics[], allSamples: Timestam
     lines.push(hrDescription);
   }
 
+  // Add elapsed time in mm:ss
+  const elapsed = getElapsed();
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  lines.push(`elapsed: ${mins}:${secs.toString().padStart(2, "0")}`);
+
   return lines.join("\n");
 }
 
