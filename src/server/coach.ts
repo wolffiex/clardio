@@ -23,6 +23,9 @@ function log(message: string) {
 export async function initCoach(): Promise<string> {
   systemPrompt = await buildSystemPrompt();
   sessionId = null;
+  log("Coach system prompt:");
+  console.log(systemPrompt);
+  console.log("---");
   return systemPrompt;
 }
 

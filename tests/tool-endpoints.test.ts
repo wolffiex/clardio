@@ -22,9 +22,9 @@ afterAll(() => {
 });
 
 describe("POST /api/metrics - sensor data", () => {
-  test("accepts valid metrics payload and broadcasts SSE", async () => {
+  test("accepts valid metrics payload and broadcasts SSE with elapsed", async () => {
     broadcastSpy.mockClear();
-    const payload = { power: 200, hr: 145, cadence: 90, elapsed: 300 };
+    const payload = { power: 200, hr: 145, cadence: 90 };
 
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
@@ -36,14 +36,21 @@ describe("POST /api/metrics - sensor data", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
-    expect(broadcastSpy).toHaveBeenCalledWith("metrics", payload);
+    // Server adds elapsed to broadcast
+    expect(broadcastSpy).toHaveBeenCalledTimes(1);
+    const broadcastCall = broadcastSpy.mock.calls[0];
+    expect(broadcastCall[0]).toBe("metrics");
+    expect(broadcastCall[1].power).toBe(200);
+    expect(broadcastCall[1].hr).toBe(145);
+    expect(broadcastCall[1].cadence).toBe(90);
+    expect(typeof broadcastCall[1].elapsed).toBe("number");
   });
 
   test("rejects payload with missing power field", async () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hr: 145, cadence: 90, elapsed: 300 }),
+      body: JSON.stringify({ hr: 145, cadence: 90 }),
     });
 
     expect(res.status).toBe(400);
@@ -56,7 +63,7 @@ describe("POST /api/metrics - sensor data", () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, cadence: 90, elapsed: 300 }),
+      body: JSON.stringify({ power: 200, cadence: 90 }),
     });
 
     expect(res.status).toBe(400);
@@ -68,19 +75,7 @@ describe("POST /api/metrics - sensor data", () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: 145, elapsed: 300 }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
-  });
-
-  test("rejects payload with missing elapsed field", async () => {
-    const res = await fetch(`${baseUrl}/api/metrics`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: 145, cadence: 90 }),
+      body: JSON.stringify({ power: 200, hr: 145 }),
     });
 
     expect(res.status).toBe(400);
@@ -92,7 +87,7 @@ describe("POST /api/metrics - sensor data", () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: "200", hr: 145, cadence: 90, elapsed: 300 }),
+      body: JSON.stringify({ power: "200", hr: 145, cadence: 90 }),
     });
 
     expect(res.status).toBe(400);
@@ -104,7 +99,7 @@ describe("POST /api/metrics - sensor data", () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: "145", cadence: 90, elapsed: 300 }),
+      body: JSON.stringify({ power: 200, hr: "145", cadence: 90 }),
     });
 
     expect(res.status).toBe(400);
@@ -116,19 +111,7 @@ describe("POST /api/metrics - sensor data", () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: 145, cadence: "90", elapsed: 300 }),
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
-  });
-
-  test("rejects payload with non-number elapsed", async () => {
-    const res = await fetch(`${baseUrl}/api/metrics`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: 145, cadence: 90, elapsed: "300" }),
+      body: JSON.stringify({ power: 200, hr: 145, cadence: "90" }),
     });
 
     expect(res.status).toBe(400);
