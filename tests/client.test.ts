@@ -1,12 +1,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../src/shared/types";
-import { RollingAverage, calculateFillPercent, getProgressColor } from "../src/client/rolling-average";
-
-// Test the event handler logic (pure functions, no DOM)
-import {
-  parseSSEEvent,
-  formatTime,
-} from "../src/client/handlers";
+import { calculateFillPercent, getProgressColor } from "../src/client/progress";
+import { parseSSEEvent, formatTime } from "../src/client/handlers";
 
 describe("parseSSEEvent", () => {
   test("parses coach event", () => {
@@ -75,7 +70,6 @@ describe("SSEClient event handling", () => {
     client.on("coach", coachHandler);
     client.on("metrics", metricsHandler);
 
-    // Simulate receiving events
     client.emit("coach", { text: "Test message" });
     client.emit("metrics", { power: 200, hr: 140, cadence: 85, elapsed: 100 });
 
@@ -98,82 +92,6 @@ describe("SSEClient event handling", () => {
 
     expect(handler1).toHaveBeenCalledTimes(1);
     expect(handler2).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("RollingAverage", () => {
-  test("returns 0 when empty", () => {
-    const ra = new RollingAverage(3);
-    expect(ra.average()).toBe(0);
-  });
-
-  test("returns single value when only one pushed", () => {
-    const ra = new RollingAverage(3);
-    expect(ra.push(100)).toBe(100);
-    expect(ra.average()).toBe(100);
-  });
-
-  test("calculates average of multiple values", () => {
-    const ra = new RollingAverage(3);
-    ra.push(100);
-    ra.push(200);
-    expect(ra.average()).toBe(150);
-    ra.push(300);
-    expect(ra.average()).toBe(200);
-  });
-
-  test("maintains window size", () => {
-    const ra = new RollingAverage(3);
-    ra.push(100);
-    ra.push(200);
-    ra.push(300);
-    // Window is full: [100, 200, 300]
-    expect(ra.average()).toBe(200);
-    expect(ra.count()).toBe(3);
-
-    // Push 4th value, should drop 100
-    ra.push(400);
-    // Window now: [200, 300, 400]
-    expect(ra.average()).toBe(300);
-    expect(ra.count()).toBe(3);
-  });
-
-  test("push returns current average", () => {
-    const ra = new RollingAverage(3);
-    expect(ra.push(100)).toBe(100);
-    expect(ra.push(200)).toBe(150);
-    expect(ra.push(300)).toBe(200);
-    expect(ra.push(400)).toBe(300);
-  });
-
-  test("clear resets all values", () => {
-    const ra = new RollingAverage(3);
-    ra.push(100);
-    ra.push(200);
-    ra.clear();
-    expect(ra.average()).toBe(0);
-    expect(ra.count()).toBe(0);
-  });
-
-  test("custom window size works", () => {
-    const ra = new RollingAverage(5);
-    for (let i = 1; i <= 6; i++) {
-      ra.push(i * 10);
-    }
-    // Values: [20, 30, 40, 50, 60] (dropped 10)
-    expect(ra.count()).toBe(5);
-    expect(ra.average()).toBe(40);
-  });
-
-  test("default window size is 3", () => {
-    const ra = new RollingAverage();
-    ra.push(10);
-    ra.push(20);
-    ra.push(30);
-    ra.push(40);
-    // Should have dropped 10
-    expect(ra.count()).toBe(3);
-    expect(ra.average()).toBe(30);
   });
 });
 

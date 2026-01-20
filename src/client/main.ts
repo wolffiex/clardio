@@ -41,6 +41,18 @@ if (testMode) {
       elapsed: 10,
     });
   }
+
+  // Support second update for testing state transitions
+  const power2 = params.get("power2");
+  const cadence2 = params.get("cadence2");
+  if (power2 && cadence2) {
+    ui.updateMetrics({
+      power: parseInt(power2),
+      hr: hr ? parseInt(hr) : 120,
+      cadence: parseInt(cadence2),
+      elapsed: 20,
+    });
+  }
 } else {
   // Normal mode: connect to SSE
   sse.on("connected", () => {

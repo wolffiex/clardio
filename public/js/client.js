@@ -63,41 +63,16 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-// src/client/rolling-average.ts
-class RollingAverage {
-  values = [];
-  windowSize;
-  constructor(windowSeconds = 3) {
-    this.windowSize = windowSeconds;
-  }
-  push(value) {
-    this.values.push(value);
-    if (this.values.length > this.windowSize) {
-      this.values.shift();
-    }
-    return this.average();
-  }
-  average() {
-    if (this.values.length === 0)
-      return 0;
-    return this.values.reduce((a, b) => a + b, 0) / this.values.length;
-  }
-  clear() {
-    this.values = [];
-  }
-  count() {
-    return this.values.length;
-  }
-}
-function calculateFillPercent(rollingAvg, target) {
+// src/client/progress.ts
+function calculateFillPercent(value, target) {
   if (target <= 0)
     return 0;
-  return Math.min(100, rollingAvg / target * 100);
+  return Math.min(100, value / target * 100);
 }
-function getProgressColor(rollingAvg, target, grace = 5) {
-  if (rollingAvg < target)
+function getProgressColor(value, target, grace = 5) {
+  if (value < target)
     return "orange";
-  if (rollingAvg > target + grace)
+  if (value > target + grace)
     return "red";
   return "green";
 }
@@ -105,16 +80,13 @@ function getProgressColor(rollingAvg, target, grace = 5) {
 // src/client/ui.ts
 class UIController {
   elements;
-  powerAvg;
-  cadenceAvg;
-  target = null;
-  lastPower = 0;
-  lastCadence = 0;
+  power = 0;
+  cadence = 0;
+  targetPower = null;
+  targetCadence = null;
   timerStart = 0;
   timerInterval = null;
   constructor() {
-    this.powerAvg = new RollingAverage(3);
-    this.cadenceAvg = new RollingAverage(3);
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
       power: document.getElementById("metric-power"),
@@ -137,9 +109,6 @@ class UIController {
       connectionText: document.getElementById("connection-text")
     };
   }
-  updateCoach(event) {
-    this.elements.coachMessage.textContent = event.text;
-  }
   startTimer() {
     this.timerStart = Date.now();
     this.updateTimerDisplay();
@@ -155,71 +124,26 @@ class UIController {
     const elapsed = Math.floor((Date.now() - this.timerStart) / 1000);
     this.elements.time.textContent = formatTime(elapsed);
   }
+  updateCoach(event) {
+    this.elements.coachMessage.textContent = event.text;
+  }
   updateMetrics(event) {
+    this.power = event.power;
+    this.cadence = event.cadence;
     this.elements.power.textContent = event.power.toString();
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
-    this.lastPower = event.power;
-    this.lastCadence = event.cadence;
-    const powerRolling = this.powerAvg.push(event.power);
-    const cadenceRolling = this.cadenceAvg.push(event.cadence);
-    this.updateProgressBar("power", event.power, powerRolling, this.target?.power, "W");
-    this.updateProgressBar("cadence", event.cadence, cadenceRolling, this.target?.cadence, "rpm");
-  }
-  updateProgressBar(type, currentValue, rollingAvg, target, unit) {
-    const elements = type === "power" ? {
-      targetSection: this.elements.powerTargetSection,
-      targetValue: this.elements.powerTarget,
-      barContainer: this.elements.powerBarContainer,
-      barFill: this.elements.powerBarFill,
-      delta: this.elements.powerDelta,
-      overTarget: this.elements.powerOverTarget
-    } : {
-      targetSection: this.elements.cadenceTargetSection,
-      targetValue: this.elements.cadenceTarget,
-      barContainer: this.elements.cadenceBarContainer,
-      barFill: this.elements.cadenceBarFill,
-      delta: this.elements.cadenceDelta,
-      overTarget: this.elements.cadenceOverTarget
-    };
-    if (!target) {
-      elements.targetSection.className = "text-right hidden";
-      elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
-      elements.delta.className = "mt-2 text-center font-medium hidden";
-      elements.overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
-      return;
-    }
-    const fillPercent = calculateFillPercent(rollingAvg, target);
-    const color = getProgressColor(rollingAvg, target);
-    const diff = Math.round(currentValue - target);
-    const barColorClasses = {
-      green: "from-green-600 to-green-400",
-      orange: "from-orange-600 to-orange-500",
-      red: "from-red-600 to-red-500"
-    }[color];
-    const deltaColorClass = diff >= 0 ? color === "red" ? "text-red-500" : "text-green-500" : "text-orange-500";
-    elements.targetSection.className = "text-right";
-    elements.targetValue.textContent = target.toString();
-    elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
-    elements.barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
-    elements.barFill.style.width = `${fillPercent}%`;
-    elements.delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
-    elements.delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
-    elements.overTarget.className = color === "red" ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold" : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
+    this.render();
   }
   updateTarget(event) {
-    if (!event) {
-      this.target = null;
-      this.updateProgressBar("power", this.lastPower, this.powerAvg.average(), undefined, "W");
-      this.updateProgressBar("cadence", this.lastCadence, this.cadenceAvg.average(), undefined, "rpm");
-      return;
+    if (event) {
+      this.targetPower = event.power;
+      this.targetCadence = event.cadence;
+    } else {
+      this.targetPower = null;
+      this.targetCadence = null;
     }
-    this.target = {
-      power: event.power,
-      cadence: event.cadence
-    };
-    this.updateProgressBar("power", this.lastPower, this.powerAvg.average(), this.target.power, "W");
-    this.updateProgressBar("cadence", this.lastCadence, this.cadenceAvg.average(), this.target.cadence, "rpm");
+    this.render();
   }
   setConnectionStatus(status) {
     const dotColors = {
@@ -227,12 +151,38 @@ class UIController {
       connecting: "bg-yellow-500",
       disconnected: "bg-red-500"
     };
-    this.elements.connectionDot.classList.remove("bg-green-500", "bg-yellow-500", "bg-red-500");
-    this.elements.connectionDot.classList.add(dotColors[status]);
+    this.elements.connectionDot.className = `w-3 h-3 rounded-full ${dotColors[status]}`;
     this.elements.connectionText.textContent = status;
   }
-  getCurrentTarget() {
-    return this.target ? { ...this.target } : null;
+  render() {
+    this.renderProgressBar("power", this.power, this.targetPower, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerDelta, this.elements.powerOverTarget);
+    this.renderProgressBar("cadence", this.cadence, this.targetCadence, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceDelta, this.elements.cadenceOverTarget);
+  }
+  renderProgressBar(_type, value, target, unit, targetSection, targetValue, barContainer, barFill, delta, overTarget) {
+    if (target === null) {
+      targetSection.className = "text-right hidden";
+      barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      delta.className = "mt-2 text-center font-medium hidden";
+      overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
+      return;
+    }
+    const fillPercent = calculateFillPercent(value, target);
+    const color = getProgressColor(value, target);
+    const diff = Math.round(value - target);
+    const barColorClasses = {
+      green: "from-green-600 to-green-400",
+      orange: "from-orange-600 to-orange-500",
+      red: "from-red-600 to-red-500"
+    }[color];
+    const deltaColorClass = diff >= 0 ? color === "red" ? "text-red-500" : "text-green-500" : "text-orange-500";
+    targetSection.className = "text-right";
+    targetValue.textContent = target.toString();
+    barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
+    barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
+    barFill.style.width = `${fillPercent}%`;
+    delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
+    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
+    overTarget.className = color === "red" ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold" : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
   }
 }
 
@@ -266,6 +216,16 @@ if (testMode) {
       hr: hr ? parseInt(hr) : 120,
       cadence: parseInt(cadence),
       elapsed: 10
+    });
+  }
+  const power2 = params.get("power2");
+  const cadence2 = params.get("cadence2");
+  if (power2 && cadence2) {
+    ui.updateMetrics({
+      power: parseInt(power2),
+      hr: hr ? parseInt(hr) : 120,
+      cadence: parseInt(cadence2),
+      elapsed: 20
     });
   }
 } else {
