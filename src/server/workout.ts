@@ -7,6 +7,7 @@
 import type { MetricsEvent, CoachEvent, TargetEvent } from "../shared/types";
 import { initCoach, sendStart, sendMetrics, resetCoach } from "./coach";
 import { broadcast } from "./sse";
+import { log } from "./log";
 
 const COACH_INTERVAL_MS = 20_000; // 20 seconds
 
@@ -23,11 +24,6 @@ interface MetricsBuffer {
 let buffer: MetricsBuffer | null = null;
 let coachTimer: Timer | null = null;
 let workoutActive = false;
-
-function log(message: string) {
-  const time = new Date().toLocaleTimeString("en-US", { hour12: false });
-  console.log(`[${time}] ${message}`);
-}
 
 /**
  * Build coach prompt from buffered metrics

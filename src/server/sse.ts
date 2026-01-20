@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { MetricsEvent, SSEEventType } from "../shared/types";
 import { startWorkout, stopWorkout, isWorkoutActive } from "./workout";
+import { log } from "./log";
 
 const encoder = new TextEncoder();
 const emitter = new EventEmitter();
@@ -8,12 +9,6 @@ emitter.setMaxListeners(100); // Support multiple connections
 
 // Track connected clients for logging
 let clientCount = 0;
-
-// Simple logger helper
-function log(message: string) {
-  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
-  console.log(`[${time}] ${message}`);
-}
 
 function formatSSE(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

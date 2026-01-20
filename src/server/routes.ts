@@ -1,12 +1,7 @@
 import type { MetricsEvent, MetricsBroadcast } from "../shared/types";
 import { broadcast } from "./sse";
 import { addMetrics, getElapsed } from "./workout";
-
-// Simple logger helper
-function log(message: string) {
-  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
-  console.log(`[${time}] ${message}`);
-}
+import { log } from "./log";
 
 // Tool endpoint response type
 interface ToolResponse {

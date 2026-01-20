@@ -10,14 +10,10 @@ import {
   responseSchema,
   type CoachResponse,
 } from "./coach-prompt";
+import { log } from "./log";
 
 let systemPrompt: string | null = null;
 let sessionId: string | null = null;
-
-function log(message: string) {
-  const time = new Date().toLocaleTimeString("en-US", { hour12: false });
-  console.log(`[${time}] ${message}`);
-}
 
 export async function initCoach(): Promise<string> {
   systemPrompt = await buildSystemPrompt();
@@ -100,10 +96,6 @@ export async function sendMetrics(prompt: string): Promise<CoachResponse> {
 
 export function resetCoach(): void {
   sessionId = null;
-}
-
-export function getSessionId(): string | null {
-  return sessionId;
 }
 
 // Test harness
