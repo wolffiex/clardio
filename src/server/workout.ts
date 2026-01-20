@@ -10,9 +10,14 @@ import { broadcast } from "./sse";
 
 const COACH_INTERVAL_MS = 20_000; // 20 seconds
 
+interface TimestampedMetrics extends MetricsEvent {
+  receivedAt: number; // Date.now() when received
+}
+
 interface MetricsBuffer {
-  samples: MetricsEvent[];
+  samples: TimestampedMetrics[];
   startTime: number;
+  lastSeenIndex: number; // Index of last sample shown to coach
 }
 
 let buffer: MetricsBuffer | null = null;
@@ -25,44 +30,53 @@ function log(message: string) {
 }
 
 /**
- * Summarize buffered metrics with micro trends
+ * Build coach prompt from buffered metrics
+ * Format:
+ *   Xs ago: hr:X cadence:Y power:Z
+ *   Ys ago: hr:X cadence:Y power:Z
+ *   hr 45s: X→Y (trend)
+ *
+ * @param newSamples - samples to display (since last coach tick)
+ * @param allSamples - all samples for HR trend calculation
  */
-function summarizeMetrics(samples: MetricsEvent[]): string {
-  if (samples.length === 0) {
+function buildCoachPrompt(newSamples: TimestampedMetrics[], allSamples: TimestampedMetrics[]): string {
+  if (newSamples.length === 0) {
     return "No metrics yet.";
   }
 
-  const latest = samples[samples.length - 1];
+  const now = Date.now();
+  const lines: string[] = [];
 
-  // Calculate averages
-  const avgPower = Math.round(samples.reduce((s, m) => s + m.power, 0) / samples.length);
-  const avgHr = Math.round(samples.reduce((s, m) => s + m.hr, 0) / samples.length);
-  const avgCadence = Math.round(samples.reduce((s, m) => s + m.cadence, 0) / samples.length);
-
-  // Calculate trends (compare first half to second half)
-  const mid = Math.floor(samples.length / 2);
-  if (samples.length >= 4) {
-    const firstHalf = samples.slice(0, mid);
-    const secondHalf = samples.slice(mid);
-
-    const firstPower = firstHalf.reduce((s, m) => s + m.power, 0) / firstHalf.length;
-    const secondPower = secondHalf.reduce((s, m) => s + m.power, 0) / secondHalf.length;
-
-    const firstHr = firstHalf.reduce((s, m) => s + m.hr, 0) / firstHalf.length;
-    const secondHr = secondHalf.reduce((s, m) => s + m.hr, 0) / secondHalf.length;
-
-    const firstCadence = firstHalf.reduce((s, m) => s + m.cadence, 0) / firstHalf.length;
-    const secondCadence = secondHalf.reduce((s, m) => s + m.cadence, 0) / secondHalf.length;
-
-    const powerTrend = getTrend(firstPower, secondPower, 5);
-    const hrTrend = getTrend(firstHr, secondHr, 3);
-    const cadenceTrend = getTrend(firstCadence, secondCadence, 3);
-
-    return `elapsed:${getElapsed()}s | power:${avgPower}W${powerTrend} hr:${avgHr}bpm${hrTrend} cadence:${avgCadence}rpm${cadenceTrend} (${samples.length} samples)`;
+  // Individual new samples with "Xs ago"
+  for (const sample of newSamples) {
+    const secsAgo = Math.round((now - sample.receivedAt) / 1000);
+    lines.push(`${secsAgo}s ago: hr:${sample.hr} cadence:${sample.cadence} power:${sample.power}`);
   }
 
-  // Not enough for trends
-  return `elapsed:${getElapsed()}s | power:${avgPower}W hr:${avgHr}bpm cadence:${avgCadence}rpm (${samples.length} samples)`;
+  // HR trend over last 45 seconds (using all samples)
+  const cutoff = now - 45_000;
+  const recentSamples = allSamples.filter(s => s.receivedAt >= cutoff);
+  if (recentSamples.length >= 2) {
+    const firstHr = recentSamples[0].hr;
+    const lastHr = recentSamples[recentSamples.length - 1].hr;
+    const diff = lastHr - firstHr;
+
+    let hrDescription: string;
+    if (Math.abs(diff) <= 3) {
+      hrDescription = "heart rate steady";
+    } else if (diff > 10) {
+      hrDescription = "heart rate climbing quickly";
+    } else if (diff > 3) {
+      hrDescription = "heart rate climbing";
+    } else if (diff < -10) {
+      hrDescription = "heart rate falling quickly";
+    } else {
+      hrDescription = "heart rate falling";
+    }
+    lines.push(hrDescription);
+  }
+
+  return lines.join("\n");
 }
 
 function getTrend(first: number, second: number, threshold: number): string {
@@ -78,21 +92,23 @@ function getTrend(first: number, second: number, threshold: number): string {
 async function onCoachTick() {
   if (!buffer || !workoutActive) return;
 
-  const samples = buffer.samples;
-  buffer.samples = []; // Clear for next interval
+  // Get new samples since last seen
+  const newSamples = buffer.samples.slice(buffer.lastSeenIndex);
 
-  if (samples.length === 0) {
-    log("Coach tick: no samples, skipping");
+  if (newSamples.length === 0) {
+    log("Coach tick: no new samples, skipping");
     return;
   }
 
-  const summary = summarizeMetrics(samples);
-  log(`Coach tick: ${summary}`);
+  // Update last seen index
+  buffer.lastSeenIndex = buffer.samples.length;
+
+  // Build prompt with new samples, but pass all samples for HR trend
+  const prompt = buildCoachPrompt(newSamples, buffer.samples);
+  log(`Coach tick: ${newSamples.length} new samples (${buffer.samples.length} total)`);
 
   try {
-    // Build a fake MetricsEvent with the latest values for the coach
-    const latest = samples[samples.length - 1];
-    const response = await sendMetrics(latest);
+    const response = await sendMetrics(prompt);
 
     log(`Coach: "${response.message}"`);
 
@@ -131,6 +147,7 @@ export async function startWorkout(): Promise<void> {
   buffer = {
     samples: [],
     startTime: Date.now(),
+    lastSeenIndex: 0,
   };
 
   workoutActive = true;
@@ -182,7 +199,7 @@ export function stopWorkout(): void {
  */
 export function addMetrics(metrics: MetricsEvent): void {
   if (!buffer || !workoutActive) return;
-  buffer.samples.push(metrics);
+  buffer.samples.push({ ...metrics, receivedAt: Date.now() });
 }
 
 /**

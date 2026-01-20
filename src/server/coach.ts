@@ -10,7 +10,6 @@ import {
   responseSchema,
   type CoachResponse,
 } from "./coach-prompt";
-import type { MetricsEvent } from "../shared/types";
 
 let systemPrompt: string | null = null;
 let sessionId: string | null = null;
@@ -93,9 +92,8 @@ export async function sendStart(): Promise<CoachResponse> {
   return sendMessage("Workout starting.");
 }
 
-export async function sendMetrics(metrics: MetricsEvent): Promise<CoachResponse> {
-  const userMessage = `power:${metrics.power}W hr:${metrics.hr}bpm cadence:${metrics.cadence}rpm elapsed:${metrics.elapsed}s`;
-  return sendMessage(userMessage);
+export async function sendMetrics(prompt: string): Promise<CoachResponse> {
+  return sendMessage(prompt);
 }
 
 export function resetCoach(): void {
@@ -111,17 +109,17 @@ if (import.meta.main) {
   await initCoach();
   console.log("Coach initialized\n");
 
-  // Simulate a few metrics updates
-  const testMetrics: MetricsEvent[] = [
-    { power: 0, hr: 72, cadence: 0, elapsed: 0 },
-    { power: 85, hr: 95, cadence: 65, elapsed: 30 },
-    { power: 110, hr: 118, cadence: 78, elapsed: 60 },
-    { power: 105, hr: 125, cadence: 75, elapsed: 90 },
+  // Simulate a few metrics prompts
+  const testPrompts = [
+    "Workout starting.",
+    "20s ago: hr:72 cadence:0 power:0\n15s ago: hr:85 cadence:50 power:60\nheart rate climbing quickly",
+    "20s ago: hr:115 cadence:78 power:110\n5s ago: hr:120 cadence:80 power:115\nheart rate climbing",
+    "20s ago: hr:145 cadence:80 power:120\n15s ago: hr:146 cadence:78 power:115\n10s ago: hr:147 cadence:75 power:105\n5s ago: hr:148 cadence:72 power:95\nheart rate steady",
   ];
 
-  for (const metrics of testMetrics) {
-    console.log(`→ power:${metrics.power}W hr:${metrics.hr}bpm cadence:${metrics.cadence}rpm elapsed:${metrics.elapsed}s`);
-    const response = await sendMetrics(metrics);
+  for (const prompt of testPrompts) {
+    console.log(`→ ${prompt.replace(/\n/g, " | ")}`);
+    const response = await sendMetrics(prompt);
     console.log(`← "${response.message}"`);
     if (response.target) {
       console.log(`  target: ${response.target.power}W ${response.target.cadence}rpm`);
