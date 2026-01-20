@@ -70,15 +70,11 @@
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <div id="power-bar-container" class="relative h-8 bg-gray-900 rounded-full overflow-hidden hidden flex-1">
-            <!-- Progress bar -->
-            <div id="power-bar-fill" class="absolute inset-y-0 left-0 bg-gradient-to-r from-orange-600 to-orange-500 rounded-full transition-all duration-300" style="width: 0%"></div>
-            <!-- Target marker -->
-            <div class="absolute inset-y-0 right-0 w-1 bg-white"></div>
-          </div>
+        <div id="power-bar-container" class="relative h-8 bg-gray-900 rounded-full overflow-hidden hidden">
+          <!-- Progress bar -->
+          <div id="power-bar-fill" class="absolute inset-y-0 left-0 bg-gradient-to-r from-orange-600 to-orange-500 rounded-full transition-all duration-300" style="width: 0%"></div>
           <!-- Over-target warning indicator -->
-          <span id="power-over-target" class="text-2xl text-yellow-400 hidden" title="Over target">!</span>
+          <span id="power-over-target" class="absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden" title="Over target">!</span>
         </div>
         <div id="power-delta" class="mt-2 text-center text-orange-500 font-medium hidden">---</div>
       </div>
@@ -99,15 +95,11 @@
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <div id="cadence-bar-container" class="relative h-8 bg-gray-900 rounded-full overflow-hidden hidden flex-1">
-            <!-- Progress bar -->
-            <div id="cadence-bar-fill" class="absolute inset-y-0 left-0 bg-gradient-to-r from-orange-600 to-orange-500 rounded-full transition-all duration-300" style="width: 0%"></div>
-            <!-- Target marker -->
-            <div class="absolute inset-y-0 right-0 w-1 bg-white"></div>
-          </div>
+        <div id="cadence-bar-container" class="relative h-8 bg-gray-900 rounded-full overflow-hidden hidden">
+          <!-- Progress bar -->
+          <div id="cadence-bar-fill" class="absolute inset-y-0 left-0 bg-gradient-to-r from-orange-600 to-orange-500 rounded-full transition-all duration-300" style="width: 0%"></div>
           <!-- Over-target warning indicator -->
-          <span id="cadence-over-target" class="text-2xl text-yellow-400 hidden" title="Over target">!</span>
+          <span id="cadence-over-target" class="absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden" title="Over target">!</span>
         </div>
         <div id="cadence-delta" class="mt-2 text-center text-orange-500 font-medium hidden">---</div>
       </div>

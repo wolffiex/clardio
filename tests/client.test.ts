@@ -216,9 +216,19 @@ describe("getProgressColor", () => {
     expect(getProgressColor(100, 100)).toBe("green");
   });
 
-  test("returns green when above target", () => {
-    expect(getProgressColor(110, 100)).toBe("green");
-    expect(getProgressColor(200, 100)).toBe("green");
+  test("returns green when within grace (default 5)", () => {
+    expect(getProgressColor(103, 100)).toBe("green");
+    expect(getProgressColor(105, 100)).toBe("green");
+  });
+
+  test("returns red when over grace", () => {
+    expect(getProgressColor(106, 100)).toBe("red");
+    expect(getProgressColor(200, 100)).toBe("red");
+  });
+
+  test("handles custom grace value", () => {
+    expect(getProgressColor(110, 100, 10)).toBe("green");
+    expect(getProgressColor(111, 100, 10)).toBe("red");
   });
 
   test("handles edge case at exactly target", () => {

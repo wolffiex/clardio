@@ -48,6 +48,10 @@ export class UIController {
   private lastPower: number = 0;
   private lastCadence: number = 0;
 
+  // Client-side timer
+  private timerStart: number = 0;
+  private timerInterval: ReturnType<typeof setInterval> | null = null;
+
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
@@ -85,14 +89,37 @@ export class UIController {
   }
 
   /**
+   * Start the workout timer
+   */
+  startTimer(): void {
+    this.timerStart = Date.now();
+    this.updateTimerDisplay();
+    this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
+  }
+
+  /**
+   * Stop the workout timer
+   */
+  stopTimer(): void {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+
+  private updateTimerDisplay(): void {
+    const elapsed = Math.floor((Date.now() - this.timerStart) / 1000);
+    this.elements.time.textContent = formatTime(elapsed);
+  }
+
+  /**
    * Update metrics display with rolling averages and progress bars
    */
   updateMetrics(event: MetricsEvent): void {
-    // Update basic displays
+    // Update basic displays (time is handled by client-side timer)
     this.elements.power.textContent = event.power.toString();
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
-    this.elements.time.textContent = formatTime(event.elapsed);
 
     // Store last values for re-rendering on target change
     this.lastPower = event.power;
@@ -151,56 +178,44 @@ export class UIController {
         };
 
     if (!target) {
-      // No target - hide progress bar elements
-      elements.targetSection.classList.add("hidden");
-      elements.barContainer.classList.add("hidden");
-      elements.delta.classList.add("hidden");
-      elements.overTarget.classList.add("hidden");
+      // No target - hide everything
+      elements.targetSection.className = "text-right hidden";
+      elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      elements.delta.className = "mt-2 text-center font-medium hidden";
+      elements.overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
       return;
     }
 
-    // Show target elements
-    elements.targetSection.classList.remove("hidden");
-    elements.barContainer.classList.remove("hidden");
-    elements.delta.classList.remove("hidden");
-
-    // Update target display
-    elements.targetValue.textContent = target.toString();
-
-    // Calculate fill percentage and color
+    // Calculate state
     const fillPercent = calculateFillPercent(rollingAvg, target);
     const color = getProgressColor(rollingAvg, target);
+    const diff = Math.round(currentValue - target);
 
-    // Update bar fill
+    // Determine classes based on color
+    const barColorClasses = {
+      green: "from-green-600 to-green-400",
+      orange: "from-orange-600 to-orange-500",
+      red: "from-red-600 to-red-500",
+    }[color];
+
+    const deltaColorClass = diff >= 0
+      ? (color === 'red' ? "text-red-500" : "text-green-500")
+      : "text-orange-500";
+
+    // Set all classes fresh (complete re-render)
+    elements.targetSection.className = "text-right";
+    elements.targetValue.textContent = target.toString();
+
+    elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
+    elements.barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
     elements.barFill.style.width = `${fillPercent}%`;
 
-    // Update bar color based on target status
-    if (color === 'green') {
-      elements.barFill.classList.remove("from-orange-600", "to-orange-500");
-      elements.barFill.classList.add("from-green-600", "to-green-400");
-    } else {
-      elements.barFill.classList.remove("from-green-600", "to-green-400");
-      elements.barFill.classList.add("from-orange-600", "to-orange-500");
-    }
+    elements.delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
+    elements.delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
 
-    // Update delta text (uses current value, not rolling average, to match displayed value)
-    const diff = Math.round(currentValue - target);
-    if (diff >= 0) {
-      elements.delta.textContent = `+${diff}${unit}`;
-      elements.delta.classList.remove("text-orange-500");
-      elements.delta.classList.add("text-green-500");
-    } else {
-      elements.delta.textContent = `${Math.abs(diff)}${unit} to go`;
-      elements.delta.classList.remove("text-green-500");
-      elements.delta.classList.add("text-orange-500");
-    }
-
-    // Show over-target warning when rolling average exceeds target
-    if (rollingAvg > target) {
-      elements.overTarget.classList.remove("hidden");
-    } else {
-      elements.overTarget.classList.add("hidden");
-    }
+    elements.overTarget.className = color === 'red'
+      ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold"
+      : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
   }
 
   /**

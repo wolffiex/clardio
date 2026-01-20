@@ -12,7 +12,8 @@
     "sim": "bun src/scripts/sim.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "playwright": "^1.57.0"
   },
   "peerDependencies": {
     "typescript": "^5"

@@ -6,34 +6,71 @@ import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 const sse = new SSEClient();
 const ui = new UIController();
 
-// Connect SSE events to UI
-sse.on("connected", () => {
-  console.log("[App] SSE connected event received");
+// Check for test params in URL
+const params = new URLSearchParams(window.location.search);
+const testMode = params.has("power") || params.has("target_power");
+
+if (testMode) {
+  // Test mode: use URL params instead of SSE
+  console.log("[App] Test mode enabled via URL params");
   ui.setConnectionStatus("connected");
-});
+  ui.startTimer();
 
-sse.on("coach", (data) => {
-  ui.updateCoach(data as CoachEvent);
-});
+  const message = params.get("message");
+  if (message) {
+    ui.updateCoach({ text: message });
+  }
 
-sse.on("metrics", (data) => {
-  ui.updateMetrics(data as MetricsEvent);
-});
+  const targetPower = params.get("target_power");
+  const targetCadence = params.get("target_cadence");
+  if (targetPower && targetCadence) {
+    ui.updateTarget({
+      power: parseInt(targetPower),
+      cadence: parseInt(targetCadence),
+    });
+  }
 
-sse.on("target", (data) => {
-  ui.updateTarget(data as TargetEvent | null);
-});
+  const power = params.get("power");
+  const cadence = params.get("cadence");
+  const hr = params.get("hr");
+  if (power && cadence) {
+    ui.updateMetrics({
+      power: parseInt(power),
+      hr: hr ? parseInt(hr) : 120,
+      cadence: parseInt(cadence),
+      elapsed: 10,
+    });
+  }
+} else {
+  // Normal mode: connect to SSE
+  sse.on("connected", () => {
+    console.log("[App] SSE connected event received");
+    ui.setConnectionStatus("connected");
+    ui.startTimer();
+  });
 
-// Handle internal connection events
-sse.on("_connected", () => {
-  ui.setConnectionStatus("connecting");
-});
+  sse.on("coach", (data) => {
+    ui.updateCoach(data as CoachEvent);
+  });
 
-sse.on("_error", () => {
-  ui.setConnectionStatus("disconnected");
-});
+  sse.on("metrics", (data) => {
+    ui.updateMetrics(data as MetricsEvent);
+  });
 
-// Start SSE connection
-sse.connect();
+  sse.on("target", (data) => {
+    ui.updateTarget(data as TargetEvent | null);
+  });
+
+  sse.on("_connected", () => {
+    ui.setConnectionStatus("connecting");
+  });
+
+  sse.on("_error", () => {
+    ui.setConnectionStatus("disconnected");
+    ui.stopTimer();
+  });
+
+  sse.connect();
+}
 
 console.log("[App] Clardio UI initialized");

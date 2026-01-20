@@ -32,6 +32,7 @@ class SSEClient {
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event) => {
         try {
+          console.log(`[SSE] Received ${type}:`, event.data);
           const data = JSON.parse(event.data);
           this.emit(type, data);
         } catch (error) {
@@ -93,8 +94,12 @@ function calculateFillPercent(rollingAvg, target) {
     return 0;
   return Math.min(100, rollingAvg / target * 100);
 }
-function getProgressColor(rollingAvg, target) {
-  return rollingAvg >= target ? "green" : "orange";
+function getProgressColor(rollingAvg, target, grace = 5) {
+  if (rollingAvg < target)
+    return "orange";
+  if (rollingAvg > target + grace)
+    return "red";
+  return "green";
 }
 
 // src/client/ui.ts
@@ -105,6 +110,8 @@ class UIController {
   target = null;
   lastPower = 0;
   lastCadence = 0;
+  timerStart = 0;
+  timerInterval = null;
   constructor() {
     this.powerAvg = new RollingAverage(3);
     this.cadenceAvg = new RollingAverage(3);
@@ -133,11 +140,25 @@ class UIController {
   updateCoach(event) {
     this.elements.coachMessage.textContent = event.text;
   }
+  startTimer() {
+    this.timerStart = Date.now();
+    this.updateTimerDisplay();
+    this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
+  }
+  stopTimer() {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+  updateTimerDisplay() {
+    const elapsed = Math.floor((Date.now() - this.timerStart) / 1000);
+    this.elements.time.textContent = formatTime(elapsed);
+  }
   updateMetrics(event) {
     this.elements.power.textContent = event.power.toString();
     this.elements.hr.textContent = event.hr.toString();
     this.elements.cadence.textContent = event.cadence.toString();
-    this.elements.time.textContent = formatTime(event.elapsed);
     this.lastPower = event.power;
     this.lastCadence = event.cadence;
     const powerRolling = this.powerAvg.push(event.power);
@@ -162,41 +183,29 @@ class UIController {
       overTarget: this.elements.cadenceOverTarget
     };
     if (!target) {
-      elements.targetSection.classList.add("hidden");
-      elements.barContainer.classList.add("hidden");
-      elements.delta.classList.add("hidden");
-      elements.overTarget.classList.add("hidden");
+      elements.targetSection.className = "text-right hidden";
+      elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      elements.delta.className = "mt-2 text-center font-medium hidden";
+      elements.overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
       return;
     }
-    elements.targetSection.classList.remove("hidden");
-    elements.barContainer.classList.remove("hidden");
-    elements.delta.classList.remove("hidden");
-    elements.targetValue.textContent = target.toString();
     const fillPercent = calculateFillPercent(rollingAvg, target);
     const color = getProgressColor(rollingAvg, target);
-    elements.barFill.style.width = `${fillPercent}%`;
-    if (color === "green") {
-      elements.barFill.classList.remove("from-orange-600", "to-orange-500");
-      elements.barFill.classList.add("from-green-600", "to-green-400");
-    } else {
-      elements.barFill.classList.remove("from-green-600", "to-green-400");
-      elements.barFill.classList.add("from-orange-600", "to-orange-500");
-    }
     const diff = Math.round(currentValue - target);
-    if (diff >= 0) {
-      elements.delta.textContent = `+${diff}${unit}`;
-      elements.delta.classList.remove("text-orange-500");
-      elements.delta.classList.add("text-green-500");
-    } else {
-      elements.delta.textContent = `${Math.abs(diff)}${unit} to go`;
-      elements.delta.classList.remove("text-green-500");
-      elements.delta.classList.add("text-orange-500");
-    }
-    if (rollingAvg > target) {
-      elements.overTarget.classList.remove("hidden");
-    } else {
-      elements.overTarget.classList.add("hidden");
-    }
+    const barColorClasses = {
+      green: "from-green-600 to-green-400",
+      orange: "from-orange-600 to-orange-500",
+      red: "from-red-600 to-red-500"
+    }[color];
+    const deltaColorClass = diff >= 0 ? color === "red" ? "text-red-500" : "text-green-500" : "text-orange-500";
+    elements.targetSection.className = "text-right";
+    elements.targetValue.textContent = target.toString();
+    elements.barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
+    elements.barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
+    elements.barFill.style.width = `${fillPercent}%`;
+    elements.delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
+    elements.delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
+    elements.overTarget.className = color === "red" ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold" : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
   }
   updateTarget(event) {
     if (!event) {
@@ -230,24 +239,57 @@ class UIController {
 // src/client/main.ts
 var sse = new SSEClient;
 var ui = new UIController;
-sse.on("connected", () => {
-  console.log("[App] SSE connected event received");
+var params = new URLSearchParams(window.location.search);
+var testMode = params.has("power") || params.has("target_power");
+if (testMode) {
+  console.log("[App] Test mode enabled via URL params");
   ui.setConnectionStatus("connected");
-});
-sse.on("coach", (data) => {
-  ui.updateCoach(data);
-});
-sse.on("metrics", (data) => {
-  ui.updateMetrics(data);
-});
-sse.on("target", (data) => {
-  ui.updateTarget(data);
-});
-sse.on("_connected", () => {
-  ui.setConnectionStatus("connecting");
-});
-sse.on("_error", () => {
-  ui.setConnectionStatus("disconnected");
-});
-sse.connect();
+  ui.startTimer();
+  const message = params.get("message");
+  if (message) {
+    ui.updateCoach({ text: message });
+  }
+  const targetPower = params.get("target_power");
+  const targetCadence = params.get("target_cadence");
+  if (targetPower && targetCadence) {
+    ui.updateTarget({
+      power: parseInt(targetPower),
+      cadence: parseInt(targetCadence)
+    });
+  }
+  const power = params.get("power");
+  const cadence = params.get("cadence");
+  const hr = params.get("hr");
+  if (power && cadence) {
+    ui.updateMetrics({
+      power: parseInt(power),
+      hr: hr ? parseInt(hr) : 120,
+      cadence: parseInt(cadence),
+      elapsed: 10
+    });
+  }
+} else {
+  sse.on("connected", () => {
+    console.log("[App] SSE connected event received");
+    ui.setConnectionStatus("connected");
+    ui.startTimer();
+  });
+  sse.on("coach", (data) => {
+    ui.updateCoach(data);
+  });
+  sse.on("metrics", (data) => {
+    ui.updateMetrics(data);
+  });
+  sse.on("target", (data) => {
+    ui.updateTarget(data);
+  });
+  sse.on("_connected", () => {
+    ui.setConnectionStatus("connecting");
+  });
+  sse.on("_error", () => {
+    ui.setConnectionStatus("disconnected");
+    ui.stopTimer();
+  });
+  sse.connect();
+}
 console.log("[App] Clardio UI initialized");

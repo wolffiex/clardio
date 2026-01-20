@@ -67,8 +67,11 @@ export function calculateFillPercent(rollingAvg: number, target: number): number
  * Determine progress bar color based on target
  * @param rollingAvg Current rolling average value
  * @param target Target value
- * @returns 'green' if at or above target, 'orange' if below
+ * @param grace Amount over target before showing red (default 5)
+ * @returns 'green' if at target (within grace), 'orange' if below, 'red' if over grace
  */
-export function getProgressColor(rollingAvg: number, target: number): 'green' | 'orange' {
-  return rollingAvg >= target ? 'green' : 'orange';
+export function getProgressColor(rollingAvg: number, target: number, grace: number = 5): 'green' | 'orange' | 'red' {
+  if (rollingAvg < target) return 'orange';
+  if (rollingAvg > target + grace) return 'red';
+  return 'green';
 }

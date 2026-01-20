@@ -53,6 +53,7 @@ export class SSEClient {
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event: MessageEvent) => {
         try {
+          console.log(`[SSE] Received ${type}:`, event.data);
           const data = JSON.parse(event.data);
           this.emit(type, data);
         } catch (error) {
