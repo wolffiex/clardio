@@ -33,7 +33,9 @@ async function sendMessage(userMessage: string): Promise<CoachResponse> {
     await initCoach();
   }
 
-  log(`Coach prompt: "${userMessage}"`);
+  log("Coach prompt:");
+  console.log(userMessage);
+  console.log();
 
   const options: Parameters<typeof query>[0]["options"] = {
     systemPrompt: systemPrompt!,
