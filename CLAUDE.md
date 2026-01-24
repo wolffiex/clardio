@@ -125,3 +125,26 @@ bun run build      # Build client bundle
 bun run dev        # Start server with hot reload
 bun run start      # Start server
 ```
+
+## Testing the Client UI
+
+Use the screenshot script with Playwright to visually verify UI states:
+
+```bash
+# Take screenshot (waits for real coach response)
+bun scripts/screenshot.ts /tmp/test.png
+
+# Test mode with URL params (instant, no coach API needed)
+bun scripts/screenshot.ts /tmp/test.png "power=120&cadence=85&target_power=100&target_cadence=75&message=Push+harder"
+
+# Test state transitions (power2/cadence2 apply after first update)
+bun scripts/screenshot.ts /tmp/test.png "power=80&cadence=60&power2=103&cadence2=78&target_power=100&target_cadence=75"
+```
+
+URL params for test mode:
+- `power`, `cadence`, `hr` - Current metric values
+- `target_power`, `target_cadence` - Target values
+- `message` - Coach message text
+- `power2`, `cadence2` - Second update for testing transitions
+
+The test mode bypasses SSE entirely - the client reads URL params on load and renders immediately.
