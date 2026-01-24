@@ -9,14 +9,32 @@ interface ToolResponse {
   error?: string;
 }
 
+// Partial metrics from sensors (each property optional)
+interface PartialMetrics {
+  power?: number;
+  hr?: number;
+  cadence?: number;
+}
+
+// Track last known values for each metric
+const lastKnown: MetricsEvent = { power: 0, hr: 0, cadence: 0 };
+
 // POST /api/metrics - sensor data from Bluetooth bridge
-function isValidMetricsPayload(body: unknown): body is MetricsEvent {
+function isValidMetricsPayload(body: unknown): body is PartialMetrics {
   if (typeof body !== "object" || body === null) return false;
   const obj = body as Record<string, unknown>;
-  if (typeof obj.power !== "number") return false;
-  if (typeof obj.hr !== "number") return false;
-  if (typeof obj.cadence !== "number") return false;
-  return true;
+  // At least one metric must be present
+  const hasPower = obj.power === undefined || typeof obj.power === "number";
+  const hasHr = obj.hr === undefined || typeof obj.hr === "number";
+  const hasCadence = obj.cadence === undefined || typeof obj.cadence === "number";
+  const hasAtLeastOne = obj.power !== undefined || obj.hr !== undefined || obj.cadence !== undefined;
+  return hasPower && hasHr && hasCadence && hasAtLeastOne;
+}
+
+export function resetLastKnown(): void {
+  lastKnown.power = 0;
+  lastKnown.hr = 0;
+  lastKnown.cadence = 0;
 }
 
 export async function handleMetrics(req: Request): Promise<Response> {
@@ -40,19 +58,24 @@ export async function handleMetrics(req: Request): Promise<Response> {
 
     if (!isValidMetricsPayload(body)) {
       return Response.json(
-        { ok: false, error: "Invalid payload: power (number), hr (number), and cadence (number) are required" } satisfies ToolResponse,
+        { ok: false, error: "Invalid payload: at least one of power, hr, cadence (numbers) required" } satisfies ToolResponse,
         { status: 400 }
       );
     }
 
+    // Merge with last known values
+    if (body.power !== undefined) lastKnown.power = body.power;
+    if (body.hr !== undefined) lastKnown.hr = body.hr;
+    if (body.cadence !== undefined) lastKnown.cadence = body.cadence;
+
     // Add server-side elapsed time and broadcast to all SSE clients
-    const broadcastData: MetricsBroadcast = { ...body, elapsed: getElapsed() };
+    const broadcastData: MetricsBroadcast = { ...lastKnown, elapsed: getElapsed() };
     broadcast("metrics", broadcastData);
 
     // Buffer for coach
-    addMetrics(body);
+    addMetrics(lastKnown);
 
-    log(`POST /api/metrics → power:${body.power} hr:${body.hr} cadence:${body.cadence}`);
+    log(`POST /api/metrics → power:${lastKnown.power} hr:${lastKnown.hr} cadence:${lastKnown.cadence}`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

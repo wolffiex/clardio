@@ -57,7 +57,6 @@ class SensorState:
 
 
 state = SensorState()
-log_start_time = time.time()  # For status logging only
 
 
 # ============================================================================
@@ -125,16 +124,30 @@ def parse_csc_measurement(data: bytes) -> int | None:
 # Notification Handlers
 # ============================================================================
 
+def log(msg: str) -> None:
+    """Log with timestamp."""
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}")
+
+
 def handle_heart_rate(_sender: int, data: bytes) -> None:
-    state.hr = parse_heart_rate(data)
+    hr = parse_heart_rate(data)
+    if hr != state.hr:
+        log(f"[HR] {hr} bpm")
+    state.hr = hr
 
 
 def handle_cycling_power(_sender: int, data: bytes) -> None:
-    state.power = parse_cycling_power(data)
+    power = parse_cycling_power(data)
+    if power != state.power:
+        log(f"[PWR] {power}W")
+    state.power = power
 
 
 def handle_csc_measurement(_sender: int, data: bytes) -> None:
     cadence = parse_csc_measurement(data)
+    if cadence is not None and cadence != state.cadence:
+        log(f"[CAD] {cadence} rpm")
     if cadence is not None:
         state.cadence = cadence
 
@@ -149,23 +162,23 @@ async def connect_device(
     characteristics: list[tuple[str, callable]],
 ) -> BleakClient | None:
     """Connect to a device and subscribe to characteristics."""
-    print(f"[BLE] Connecting to {name}...")
+    log(f"[BLE] Connecting to {name} ({device.address})...")
 
     try:
         client = BleakClient(device)
         await client.connect()
-        print(f"[BLE] Connected to {name}")
+        log(f"[BLE] Connected to {name}")
 
         for char_uuid, handler in characteristics:
             try:
                 await client.start_notify(char_uuid, handler)
-                print(f"[BLE] Subscribed to {char_uuid[-8:-4]} on {name}")
+                log(f"[BLE] Subscribed to {char_uuid[-8:-4]} on {name}")
             except Exception as e:
-                print(f"[BLE] Failed to subscribe to {char_uuid}: {e}")
+                log(f"[BLE] Failed to subscribe to {char_uuid}: {e}")
 
         return client
     except Exception as e:
-        print(f"[BLE] Failed to connect to {name}: {e}")
+        log(f"[BLE] Failed to connect to {name}: {e}")
         return None
 
 
@@ -181,10 +194,11 @@ async def manage_device(
         # Wait for our device to be found by the scanner
         device = await device_queue.get()
 
-        print(f"[BLE] Found {name}")
+        log(f"[BLE] Found {name}")
         client = await connect_device(device, name, characteristics)
 
         if client is None:
+            log(f"[BLE] Waiting {RECONNECT_DELAY}s before retry...")
             await asyncio.sleep(RECONNECT_DELAY)
             continue
 
@@ -195,9 +209,9 @@ async def manage_device(
             while client.is_connected:
                 await asyncio.sleep(1.0)
         except Exception as e:
-            print(f"[BLE] {name} connection error: {e}")
+            log(f"[BLE] {name} connection error: {e}")
 
-        print(f"[BLE] {name} disconnected")
+        log(f"[BLE] {name} disconnected")
         set_connected(False)
 
         # Reset values on disconnect
@@ -224,19 +238,25 @@ async def scan_for_devices(
             found.clear()  # Reset so we can find them again if they disconnect
             continue
 
-        print(f"[BLE] Scanning for {len(needed)} device(s)...")
+        log(f"[BLE] Scanning for {len(needed)} device(s): {', '.join(needed)}")
 
         try:
             devices = await BleakScanner.discover(timeout=10.0)
+            log(f"[BLE] Scan found {len(devices)} device(s)")
 
             for device in devices:
                 if device.address in needed:
-                    print(f"[BLE] Scanner found {device.address}")
+                    log(f"[BLE] Scanner found target: {device.address} ({device.name})")
                     found.add(device.address)
                     await targets[device.address].put(device)
 
+            # Log if we didn't find what we needed
+            still_needed = needed - found
+            if still_needed:
+                log(f"[BLE] Still looking for: {', '.join(still_needed)}")
+
         except Exception as e:
-            print(f"[BLE] Scan error: {e}")
+            log(f"[BLE] Scan error: {e}")
 
         await asyncio.sleep(1.0)  # Brief pause between scans
 
@@ -246,22 +266,24 @@ async def scan_for_devices(
 # ============================================================================
 
 async def post_metrics_loop() -> None:
-    """POST metrics to the server every second."""
+    """POST metrics to the server - only include connected device metrics."""
     async with aiohttp.ClientSession() as session:
         while True:
-            metrics = {
-                "power": state.power,
-                "hr": state.hr,
-                "cadence": state.cadence,
-            }
+            # Only include metrics from connected devices
+            metrics: dict[str, int] = {}
+            if state.connected_gymnasticon:
+                metrics["power"] = state.power
+                metrics["cadence"] = state.cadence
+            if state.connected_coros:
+                metrics["hr"] = state.hr
 
-            try:
-                async with session.post(SERVER_URL, json=metrics) as resp:
-                    if resp.status != 200:
-                        print(f"[HTTP] Failed to POST: {resp.status}")
-            except Exception:
-                # Server might not be running
-                pass
+            if metrics:
+                try:
+                    async with session.post(SERVER_URL, json=metrics) as resp:
+                        if resp.status != 200:
+                            log(f"[HTTP] POST failed: {resp.status}")
+                except aiohttp.ClientError as e:
+                    log(f"[HTTP] POST error: {e}")
 
             await asyncio.sleep(POST_INTERVAL)
 
@@ -270,13 +292,12 @@ async def log_status_loop() -> None:
     """Log status every 5 seconds."""
     while True:
         await asyncio.sleep(5.0)
-        elapsed = int(time.time() - log_start_time)
-        gym = "connected" if state.connected_gymnasticon else "disconnected"
-        coros = "connected" if state.connected_coros else "disconnected"
+        gym = "✓" if state.connected_gymnasticon else "✗"
+        coros = "✓" if state.connected_coros else "✗"
 
-        print(
-            f"[{elapsed}s] Power: {state.power}W | HR: {state.hr}bpm | "
-            f"Cadence: {state.cadence}rpm | Gymnasticon: {gym} | COROS: {coros}"
+        log(
+            f"[STATUS] P:{state.power}W HR:{state.hr} C:{state.cadence}rpm | "
+            f"Gym:{gym} COROS:{coros}"
         )
 
 
@@ -297,14 +318,14 @@ def ensure_bluetooth_service() -> bool:
     except Exception:
         pass
 
-    print("[BLE] Bluetooth service not running, attempting to start...")
+    log("[BLE] Bluetooth service not running, attempting to start...")
     try:
         subprocess.run(["systemctl", "start", "bluetooth"], check=True)
         time.sleep(1)
-        print("[BLE] Bluetooth service started")
+        log("[BLE] Bluetooth service started")
         return True
     except Exception as e:
-        print(f"[BLE] Failed to start Bluetooth service: {e}")
+        log(f"[BLE] Failed to start Bluetooth service: {e}")
         return False
 
 
@@ -359,10 +380,10 @@ async def async_main() -> None:
 
 def main() -> None:
     if not ensure_bluetooth_service():
-        print("[BLE] Cannot proceed without Bluetooth service")
+        log("[BLE] Cannot proceed without Bluetooth service")
         return
 
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
-        print("\n[BLE] Shutting down...")
+        log("[BLE] Shutting down...")

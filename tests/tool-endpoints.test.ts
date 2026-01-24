@@ -46,36 +46,37 @@ describe("POST /api/metrics - sensor data", () => {
     expect(typeof broadcastCall[1].elapsed).toBe("number");
   });
 
-  test("rejects payload with missing power field", async () => {
+  test("accepts partial payload with only hr", async () => {
+    broadcastSpy.mockClear();
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hr: 145, cadence: 90 }),
+      body: JSON.stringify({ hr: 145 }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.ok).toBe(false);
-    expect(json.error).toBeDefined();
+    expect(json.ok).toBe(true);
   });
 
-  test("rejects payload with missing hr field", async () => {
+  test("accepts partial payload with only power and cadence", async () => {
+    broadcastSpy.mockClear();
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ power: 200, cadence: 90 }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.ok).toBe(false);
+    expect(json.ok).toBe(true);
   });
 
-  test("rejects payload with missing cadence field", async () => {
+  test("rejects empty payload", async () => {
     const res = await fetch(`${baseUrl}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ power: 200, hr: 145 }),
+      body: JSON.stringify({}),
     });
 
     expect(res.status).toBe(400);

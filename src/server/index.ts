@@ -2,6 +2,7 @@ import type { Server } from "bun";
 import { handleSSE, broadcast, broadcastMetrics } from "./sse";
 import { handleMetrics } from "./routes";
 import { join } from "node:path";
+import { log } from "./log";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
 
@@ -13,9 +14,11 @@ export function createServer(port: number = 0): Server {
     async fetch(req) {
       const url = new URL(req.url);
       const pathname = url.pathname;
+      log(`Request: ${req.method} ${pathname}`);
 
       // API routes
       if (pathname === "/api/events") {
+        log("Handling SSE connection");
         return handleSSE(req);
       }
 
