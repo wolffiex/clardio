@@ -139,12 +139,16 @@ class UIController {
       powerBarContainer: document.getElementById("power-bar-container"),
       powerBarFill: document.getElementById("power-bar-fill"),
       powerTargetPointer: document.getElementById("power-target-pointer"),
+      powerValueLabel: document.getElementById("power-value-label"),
+      powerScaleLabels: document.getElementById("power-scale-labels"),
       powerDelta: document.getElementById("power-delta"),
       cadenceTargetSection: document.getElementById("cadence-target-section"),
       cadenceTarget: document.getElementById("cadence-target"),
       cadenceBarContainer: document.getElementById("cadence-bar-container"),
       cadenceBarFill: document.getElementById("cadence-bar-fill"),
       cadenceTargetPointer: document.getElementById("cadence-target-pointer"),
+      cadenceValueLabel: document.getElementById("cadence-value-label"),
+      cadenceScaleLabels: document.getElementById("cadence-scale-labels"),
       cadenceDelta: document.getElementById("cadence-delta"),
       connectionDot: document.getElementById("connection-dot"),
       connectionText: document.getElementById("connection-text")
@@ -196,13 +200,14 @@ class UIController {
     this.elements.connectionText.textContent = status;
   }
   render() {
-    this.renderProgressBar(this.power, this.targetPower, POWER_MIN, POWER_MAX, POWER_GRACE_ZONE, POWER_MAX_DISTANCE, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerTargetPointer, this.elements.powerDelta);
-    this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceDelta);
+    this.renderProgressBar(this.power, this.targetPower, POWER_MIN, POWER_MAX, POWER_GRACE_ZONE, POWER_MAX_DISTANCE, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerTargetPointer, this.elements.powerValueLabel, this.elements.powerScaleLabels, this.elements.powerDelta);
+    this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceValueLabel, this.elements.cadenceScaleLabels, this.elements.cadenceDelta);
   }
-  renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, targetSection, targetValue, barContainer, barFill, targetPointer, delta) {
+  renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, targetSection, targetValue, barContainer, barFill, targetPointer, valueLabel, scaleLabels, delta) {
     if (target === null) {
       targetSection.className = "text-right hidden";
       barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1 hidden";
       delta.className = "mt-2 text-center font-medium hidden";
       return;
     }
@@ -212,13 +217,15 @@ class UIController {
     const diff = Math.round(value - target);
     targetSection.className = "text-right";
     targetValue.textContent = target.toString();
-    barContainer.className = "relative h-8 bg-gray-900 rounded-full";
+    barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";
     barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
     barFill.style.backgroundColor = color;
     targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
     targetPointer.style.left = `${targetPos}%`;
     targetPointer.style.transform = "translateX(-50%)";
+    valueLabel.style.left = `${fillPercent}%`;
+    scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
     delta.className = "mt-2 text-center font-medium";
     delta.style.color = color;
     delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${diff}${unit}`;
