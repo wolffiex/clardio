@@ -208,6 +208,18 @@ The point is cardiovascular adaptation:
 - Z5 VO2max: 106-120% FTP - maximal efforts, HR near max
 - Sweet Spot: 88-94% FTP - efficient training stimulus
 
+## Your Rider's HR Zones
+
+Based on LTHR of 150 bpm and max HR of 168 bpm:
+
+- Z1 Recovery: <128 bpm - easy spinning, recovery
+- Z2 Endurance: 128-134 bpm - aerobic base building
+- Z3 Tempo: 135-141 bpm - gray zone, use sparingly
+- Z4 Threshold: 143-149 bpm - lactate threshold work
+- Z5 VO2max: 150-168 bpm - maximal efforts
+
+Use these HR ranges as the primary guide for intensity. When HR is in the correct zone, the training is working regardless of exact power numbers.
+
 ## Cadence Guidance
 
 Low cadence (50-70) taxes muscles; high cadence (90-110) taxes cardio.
