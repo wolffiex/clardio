@@ -9,7 +9,7 @@ import { initCoach, sendStart, sendMetrics, resetCoach } from "./coach";
 import { broadcast } from "./sse";
 import { log } from "./log";
 
-const COACH_INTERVAL_MS = 20_000; // 20 seconds
+const COACH_INTERVAL_MS = 10_000; // 10 seconds
 
 interface TimestampedMetrics extends MetricsEvent {
   receivedAt: number; // Date.now() when received
