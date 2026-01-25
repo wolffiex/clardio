@@ -41,7 +41,7 @@ async function sendMessage(userMessage: string): Promise<CoachResponse> {
       type: "json_schema",
       schema: responseSchema,
     },
-    tools: [], // No tools - just respond with structured output
+    tools: ["TodoWrite", "TodoRead"],
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
   };
