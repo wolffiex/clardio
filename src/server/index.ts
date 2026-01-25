@@ -1,10 +1,13 @@
 import type { Server } from "bun";
-import { handleSSE, broadcast, broadcastMetrics } from "./sse";
+import { handleSSE, broadcast, broadcastMetrics, setBridgeEnabled } from "./sse";
 import { handleMetrics } from "./routes";
 import { join } from "node:path";
 import { log } from "./log";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
+
+// Parse command-line flags
+const noBridge = process.argv.includes("--no-bridge");
 
 export function createServer(port: number = 0): Server {
   return Bun.serve({
@@ -55,6 +58,10 @@ export { broadcast, broadcastMetrics };
 
 // Run server if this file is executed directly
 if (import.meta.main) {
+  if (noBridge) {
+    setBridgeEnabled(false);
+    log("Sensor bridge disabled, using simulator mode");
+  }
   const server = createServer(3000);
   console.log(`Clardio running at http://localhost:${server.port}`);
 }

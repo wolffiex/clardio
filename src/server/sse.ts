@@ -11,6 +11,13 @@ emitter.setMaxListeners(100); // Support multiple connections
 // Track connected clients for logging
 let clientCount = 0;
 
+// Bridge control
+let bridgeEnabled = true;
+
+export function setBridgeEnabled(enabled: boolean): void {
+  bridgeEnabled = enabled;
+}
+
 function formatSSE(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -26,7 +33,9 @@ export function handleSSE(req: Request): Response {
 
       // Start workout session and sensor bridge
       startWorkout();
-      spawnSensorBridge();
+      if (bridgeEnabled) {
+        spawnSensorBridge();
+      }
 
       // Send retry interval
       controller.enqueue(encoder.encode("retry: 3000\n\n"));
@@ -55,7 +64,9 @@ export function handleSSE(req: Request): Response {
 
         // Stop workout session and sensor bridge
         stopWorkout();
-        killSensorBridge();
+        if (bridgeEnabled) {
+          killSensorBridge();
+        }
         try {
           controller.close();
         } catch {
