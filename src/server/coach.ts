@@ -69,6 +69,15 @@ async function sendMessage(userMessage: string): Promise<CoachResponse> {
           if (block.type === "tool_use" && block.name === "StructuredOutput") {
             response = block.input as CoachResponse;
           }
+          // Log TodoWrite tool calls for debugging
+          if (block.type === "tool_use" && block.name === "TodoWrite") {
+            const todos = (block.input as { todos: Array<{ content: string; status: string }> }).todos;
+            log("Workout plan:");
+            for (const todo of todos) {
+              const icon = todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "●" : "○";
+              console.log(`  ${icon} ${todo.content.padEnd(30)} ${todo.status}`);
+            }
+          }
         }
       }
     }
