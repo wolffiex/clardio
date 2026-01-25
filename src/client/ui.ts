@@ -1,6 +1,18 @@
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 import { formatTime } from "./handlers";
-import { calculateFillPercent, getProgressColor } from "./progress";
+import {
+  calculateFillPercent,
+  calculateTargetPosition,
+  getColorFromDistance,
+  POWER_MIN,
+  POWER_MAX,
+  CADENCE_MIN,
+  CADENCE_MAX,
+  POWER_GRACE_ZONE,
+  POWER_MAX_DISTANCE,
+  CADENCE_GRACE_ZONE,
+  CADENCE_MAX_DISTANCE,
+} from "./progress";
 
 interface UIElements {
   coachMessage: HTMLElement;
@@ -12,14 +24,14 @@ interface UIElements {
   powerTarget: HTMLElement;
   powerBarContainer: HTMLElement;
   powerBarFill: HTMLElement;
+  powerTargetPointer: HTMLElement;
   powerDelta: HTMLElement;
-  powerOverTarget: HTMLElement;
   cadenceTargetSection: HTMLElement;
   cadenceTarget: HTMLElement;
   cadenceBarContainer: HTMLElement;
   cadenceBarFill: HTMLElement;
+  cadenceTargetPointer: HTMLElement;
   cadenceDelta: HTMLElement;
-  cadenceOverTarget: HTMLElement;
   connectionDot: HTMLElement;
   connectionText: HTMLElement;
 }
@@ -44,14 +56,14 @@ export class UIController {
       powerTarget: document.getElementById("power-target")!,
       powerBarContainer: document.getElementById("power-bar-container")!,
       powerBarFill: document.getElementById("power-bar-fill")!,
+      powerTargetPointer: document.getElementById("power-target-pointer")!,
       powerDelta: document.getElementById("power-delta")!,
-      powerOverTarget: document.getElementById("power-over-target")!,
       cadenceTargetSection: document.getElementById("cadence-target-section")!,
       cadenceTarget: document.getElementById("cadence-target")!,
       cadenceBarContainer: document.getElementById("cadence-bar-container")!,
       cadenceBarFill: document.getElementById("cadence-bar-fill")!,
+      cadenceTargetPointer: document.getElementById("cadence-target-pointer")!,
       cadenceDelta: document.getElementById("cadence-delta")!,
-      cadenceOverTarget: document.getElementById("cadence-over-target")!,
       connectionDot: document.getElementById("connection-dot")!,
       connectionText: document.getElementById("connection-text")!,
     };
@@ -113,77 +125,80 @@ export class UIController {
 
   private render(): void {
     this.renderProgressBar(
-      'power',
       this.power,
       this.targetPower,
+      POWER_MIN,
+      POWER_MAX,
+      POWER_GRACE_ZONE,
+      POWER_MAX_DISTANCE,
       'W',
       this.elements.powerTargetSection,
       this.elements.powerTarget,
       this.elements.powerBarContainer,
       this.elements.powerBarFill,
-      this.elements.powerDelta,
-      this.elements.powerOverTarget
+      this.elements.powerTargetPointer,
+      this.elements.powerDelta
     );
     this.renderProgressBar(
-      'cadence',
       this.cadence,
       this.targetCadence,
+      CADENCE_MIN,
+      CADENCE_MAX,
+      CADENCE_GRACE_ZONE,
+      CADENCE_MAX_DISTANCE,
       'rpm',
       this.elements.cadenceTargetSection,
       this.elements.cadenceTarget,
       this.elements.cadenceBarContainer,
       this.elements.cadenceBarFill,
-      this.elements.cadenceDelta,
-      this.elements.cadenceOverTarget
+      this.elements.cadenceTargetPointer,
+      this.elements.cadenceDelta
     );
   }
 
   private renderProgressBar(
-    _type: string,
     value: number,
     target: number | null,
+    min: number,
+    max: number,
+    graceZone: number,
+    maxDistance: number,
     unit: string,
     targetSection: HTMLElement,
     targetValue: HTMLElement,
     barContainer: HTMLElement,
     barFill: HTMLElement,
-    delta: HTMLElement,
-    overTarget: HTMLElement
+    targetPointer: HTMLElement,
+    delta: HTMLElement
   ): void {
     if (target === null) {
       targetSection.className = "text-right hidden";
       barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
       delta.className = "mt-2 text-center font-medium hidden";
-      overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
       return;
     }
 
-    const fillPercent = calculateFillPercent(value, target);
-    const color = getProgressColor(value, target);
+    const fillPercent = calculateFillPercent(value, min, max);
+    const targetPos = calculateTargetPosition(target, min, max);
+    const color = getColorFromDistance(value, target, graceZone, maxDistance);
     const diff = Math.round(value - target);
-
-    const barColorClasses = {
-      green: "from-green-600 to-green-400",
-      orange: "from-orange-600 to-orange-500",
-      red: "from-red-600 to-red-500",
-    }[color];
-
-    const deltaColorClass = diff >= 0
-      ? (color === 'red' ? "text-red-500" : "text-green-500")
-      : "text-orange-500";
 
     targetSection.className = "text-right";
     targetValue.textContent = target.toString();
 
-    barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
-    barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
+    barContainer.className = "relative h-8 bg-gray-900 rounded-full";
+    barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
+    barFill.style.backgroundColor = color;
 
-    delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
-    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
+    // Position target pointer
+    targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
+    targetPointer.style.left = `${targetPos}%`;
+    targetPointer.style.transform = "translateX(-50%)";
 
-    overTarget.className = color === 'red'
-      ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold"
-      : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
+    // Delta text color based on distance
+    delta.className = "mt-2 text-center font-medium";
+    delta.style.color = color;
+    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${diff}${unit}`;
   }
 }

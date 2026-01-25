@@ -64,17 +64,58 @@ function formatTime(seconds) {
 }
 
 // src/client/progress.ts
-function calculateFillPercent(value, target) {
-  if (target <= 0)
+var POWER_MIN = 50;
+var POWER_MAX = 400;
+var CADENCE_MIN = 45;
+var CADENCE_MAX = 120;
+function calculateFillPercent(value, min, max) {
+  if (value <= min)
     return 0;
-  return Math.min(100, value / target * 100);
+  if (value >= max)
+    return 100;
+  return (value - min) / (max - min) * 100;
 }
-function getProgressColor(value, target, grace = 5) {
-  if (value < target)
-    return "orange";
-  if (value > target + grace)
-    return "red";
-  return "green";
+function calculateTargetPosition(target, min, max) {
+  if (target <= min)
+    return 0;
+  if (target >= max)
+    return 100;
+  return (target - min) / (max - min) * 100;
+}
+var POWER_GRACE_ZONE = 10;
+var POWER_MAX_DISTANCE = 50;
+var CADENCE_GRACE_ZONE = 5;
+var CADENCE_MAX_DISTANCE = 20;
+function interpolateColor(color1, color2, factor) {
+  const r = Math.round(color1[0] + (color2[0] - color1[0]) * factor);
+  const g = Math.round(color1[1] + (color2[1] - color1[1]) * factor);
+  const b = Math.round(color1[2] + (color2[2] - color1[2]) * factor);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+var GREEN = [34, 197, 94];
+var YELLOW = [234, 179, 8];
+var ORANGE = [249, 115, 22];
+var RED = [239, 68, 68];
+function getColorFromDistance(value, target, graceZone, maxDistance) {
+  if (target === null)
+    return "rgb(107, 114, 128)";
+  const distance = Math.abs(value - target);
+  if (distance <= graceZone) {
+    return `rgb(${GREEN[0]}, ${GREEN[1]}, ${GREEN[2]})`;
+  }
+  if (distance >= maxDistance) {
+    return `rgb(${RED[0]}, ${RED[1]}, ${RED[2]})`;
+  }
+  const effectiveDistance = distance - graceZone;
+  const effectiveRange = maxDistance - graceZone;
+  const factor = effectiveDistance / effectiveRange;
+  if (factor <= 0.33) {
+    return interpolateColor(GREEN, YELLOW, factor / 0.33);
+  } else if (factor <= 0.66) {
+    return interpolateColor(YELLOW, ORANGE, (factor - 0.33) / 0.33);
+  } else {
+    return interpolateColor(ORANGE, RED, (factor - 0.66) / 0.34);
+  }
 }
 
 // src/client/ui.ts
@@ -97,14 +138,14 @@ class UIController {
       powerTarget: document.getElementById("power-target"),
       powerBarContainer: document.getElementById("power-bar-container"),
       powerBarFill: document.getElementById("power-bar-fill"),
+      powerTargetPointer: document.getElementById("power-target-pointer"),
       powerDelta: document.getElementById("power-delta"),
-      powerOverTarget: document.getElementById("power-over-target"),
       cadenceTargetSection: document.getElementById("cadence-target-section"),
       cadenceTarget: document.getElementById("cadence-target"),
       cadenceBarContainer: document.getElementById("cadence-bar-container"),
       cadenceBarFill: document.getElementById("cadence-bar-fill"),
+      cadenceTargetPointer: document.getElementById("cadence-target-pointer"),
       cadenceDelta: document.getElementById("cadence-delta"),
-      cadenceOverTarget: document.getElementById("cadence-over-target"),
       connectionDot: document.getElementById("connection-dot"),
       connectionText: document.getElementById("connection-text")
     };
@@ -155,34 +196,32 @@ class UIController {
     this.elements.connectionText.textContent = status;
   }
   render() {
-    this.renderProgressBar("power", this.power, this.targetPower, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerDelta, this.elements.powerOverTarget);
-    this.renderProgressBar("cadence", this.cadence, this.targetCadence, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceDelta, this.elements.cadenceOverTarget);
+    this.renderProgressBar(this.power, this.targetPower, POWER_MIN, POWER_MAX, POWER_GRACE_ZONE, POWER_MAX_DISTANCE, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerTargetPointer, this.elements.powerDelta);
+    this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceDelta);
   }
-  renderProgressBar(_type, value, target, unit, targetSection, targetValue, barContainer, barFill, delta, overTarget) {
+  renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, targetSection, targetValue, barContainer, barFill, targetPointer, delta) {
     if (target === null) {
       targetSection.className = "text-right hidden";
       barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
       delta.className = "mt-2 text-center font-medium hidden";
-      overTarget.className = "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
       return;
     }
-    const fillPercent = calculateFillPercent(value, target);
-    const color = getProgressColor(value, target);
+    const fillPercent = calculateFillPercent(value, min, max);
+    const targetPos = calculateTargetPosition(target, min, max);
+    const color = getColorFromDistance(value, target, graceZone, maxDistance);
     const diff = Math.round(value - target);
-    const barColorClasses = {
-      green: "from-green-600 to-green-400",
-      orange: "from-orange-600 to-orange-500",
-      red: "from-red-600 to-red-500"
-    }[color];
-    const deltaColorClass = diff >= 0 ? color === "red" ? "text-red-500" : "text-green-500" : "text-orange-500";
     targetSection.className = "text-right";
     targetValue.textContent = target.toString();
-    barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden";
-    barFill.className = `absolute inset-y-0 left-0 bg-gradient-to-r ${barColorClasses} rounded-full transition-all duration-300`;
+    barContainer.className = "relative h-8 bg-gray-900 rounded-full";
+    barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
-    delta.className = `mt-2 text-center font-medium ${deltaColorClass}`;
-    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${Math.abs(diff)}${unit} to go`;
-    overTarget.className = color === "red" ? "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold" : "absolute right-2 top-1/2 -translate-y-1/2 text-xl text-yellow-400 font-bold hidden";
+    barFill.style.backgroundColor = color;
+    targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
+    targetPointer.style.left = `${targetPos}%`;
+    targetPointer.style.transform = "translateX(-50%)";
+    delta.className = "mt-2 text-center font-medium";
+    delta.style.color = color;
+    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${diff}${unit}`;
   }
 }
 
