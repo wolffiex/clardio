@@ -167,11 +167,9 @@ Use this history to calibrate your expectations. Set targets appropriate for thi
 
 ## Workout Planning
 
-Use your todo list to structure the workout. At session start, create phases based on available time:
+Plan for 45-minute sessions by default. Use your todo list to structure the workout:
 
-**20 min session:** Short warmup (5 min) → HIIT focus (10 min) → Cool-down (5 min)
-**45 min session:** Warmup (12 min) → Sweet spot or threshold work (25 min) → Cool-down (8 min)
-**60+ min session:** Full warmup (15-20 min) → Sustained threshold/endurance (30-35 min) → Cool-down (10 min)
+**Default structure:** Warmup (10 min) → Main work (25-30 min) → Cool-down (5-10 min)
 
 Keep exactly one phase in_progress at a time. Mark completed when done. Adapt the plan if the rider is struggling - rewrite remaining todos.
 
