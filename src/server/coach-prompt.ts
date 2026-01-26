@@ -241,6 +241,46 @@ export async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
   }
 }
 
+/**
+ * Detect if a decoupling value is an outlier and return explanation if so.
+ * Considers: absolute threshold (>15%), correlation with high VI, and statistical deviation.
+ */
+function detectDecouplingOutlier(
+  decoupling: number,
+  variabilityIndex: number | null,
+  allDecouplings: number[]
+): string | null {
+  // Calculate mean and standard deviation for statistical outlier detection
+  const mean = allDecouplings.reduce((sum, d) => sum + d, 0) / allDecouplings.length;
+  const variance = allDecouplings.reduce((sum, d) => sum + Math.pow(d - mean, 2), 0) / allDecouplings.length;
+  const stdDev = Math.sqrt(variance);
+
+  // Check if this is a statistical outlier (> 2 standard deviations from mean)
+  const isStatisticalOutlier = stdDev > 0 && Math.abs(decoupling - mean) > 2 * stdDev;
+
+  // Check if decoupling is unusually high (> 15%)
+  const isHighDecoupling = decoupling > 15;
+
+  // Check if high decoupling correlates with high variability (interval session)
+  const isVariableSession = variabilityIndex !== null && variabilityIndex > 1.2;
+
+  // Only flag if it's an outlier
+  if (!isStatisticalOutlier && !isHighDecoupling) {
+    return null;
+  }
+
+  // Explain why it's an outlier
+  if (isHighDecoupling && isVariableSession) {
+    return `VI ${variabilityIndex!.toFixed(2)} session`;
+  } else if (isHighDecoupling) {
+    return "unusually high";
+  } else if (isStatisticalOutlier) {
+    return "outlier";
+  }
+
+  return null;
+}
+
 function formatRelativeTime(date: Date): string {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -398,12 +438,37 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
 
     // Show decoupling trend if multiple workouts
     if (decouplingValues.length >= 2) {
-      const decoupTrend = decouplingValues.map((d) => `${d.toFixed(0)}%`).join(" -> ");
+      // Build trend with outlier annotations
+      const workoutsWithDecoupling = workouts.filter(
+        (w) => w.decoupling !== null
+      );
+      const outlierNotes: string[] = [];
+      const trendParts = workoutsWithDecoupling.map((w, idx) => {
+        const d = w.decoupling!;
+        const outlierReason = detectDecouplingOutlier(
+          d,
+          w.variabilityIndex,
+          decouplingValues
+        );
+        if (outlierReason) {
+          const marker = `*${idx + 1}`;
+          outlierNotes.push(`${marker}: ${outlierReason}`);
+          return `${d.toFixed(0)}%${marker}`;
+        }
+        return `${d.toFixed(0)}%`;
+      });
+      const decoupTrend = trendParts.join(" -> ");
+
       // Determine if improving (declining decoupling is good)
       const isImproving =
         decouplingValues[decouplingValues.length - 1] < decouplingValues[0];
       const trendNote = isImproving ? " (improving)" : "";
       lines.push(`- Decoupling trend: ${decoupTrend}${trendNote}`);
+
+      // Add outlier notes if any
+      if (outlierNotes.length > 0) {
+        lines.push(`  (${outlierNotes.join("; ")})`);
+      }
     } else if (decouplingValues.length === 1) {
       lines.push(`- Decoupling: ${decouplingValues[0].toFixed(0)}%`);
     }
@@ -460,7 +525,7 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   if (allCadenceP25.length > 0) {
     const cadenceLow = Math.min(...allCadenceP25);
     const cadenceHigh = Math.max(...allCadenceP75);
-    lines.push(`- Cadence usually ${cadenceLow}-${cadenceHigh} rpm`);
+    lines.push(`- Cadence: ${cadenceLow}-${cadenceHigh} rpm`);
   }
 
   // Check for power fade pattern (negative decoupling = strong finish)
