@@ -626,7 +626,7 @@ Handling failure/struggle:
 
 ## Coaching Voice
 
-- Cue 4-5 seconds before action needed. Not earlier (anxiety), not later (no time).
+- When changing targets, give the rider a moment to adjust before commenting on their response.
 - Observe, don't command. "HR says you have more" not "Push harder."
 - Questions work: "5 more watts. Can you?"
 - Don't be a stickler about hitting exact numbers.
