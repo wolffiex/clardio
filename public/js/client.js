@@ -134,19 +134,17 @@ class UIController {
       hr: document.getElementById("metric-hr"),
       cadence: document.getElementById("metric-cadence"),
       time: document.getElementById("metric-time"),
-      powerTargetSection: document.getElementById("power-target-section"),
-      powerTarget: document.getElementById("power-target"),
       powerBarContainer: document.getElementById("power-bar-container"),
       powerBarFill: document.getElementById("power-bar-fill"),
       powerTargetPointer: document.getElementById("power-target-pointer"),
+      powerTargetLabel: document.getElementById("power-target-label"),
       powerValueLabel: document.getElementById("power-value-label"),
       powerScaleLabels: document.getElementById("power-scale-labels"),
       powerDelta: document.getElementById("power-delta"),
-      cadenceTargetSection: document.getElementById("cadence-target-section"),
-      cadenceTarget: document.getElementById("cadence-target"),
       cadenceBarContainer: document.getElementById("cadence-bar-container"),
       cadenceBarFill: document.getElementById("cadence-bar-fill"),
       cadenceTargetPointer: document.getElementById("cadence-target-pointer"),
+      cadenceTargetLabel: document.getElementById("cadence-target-label"),
       cadenceValueLabel: document.getElementById("cadence-value-label"),
       cadenceScaleLabels: document.getElementById("cadence-scale-labels"),
       cadenceDelta: document.getElementById("cadence-delta"),
@@ -202,13 +200,14 @@ class UIController {
     this.elements.connectionText.textContent = status;
   }
   render() {
-    this.renderProgressBar(this.power, this.targetPower, POWER_MIN, POWER_MAX, POWER_GRACE_ZONE, POWER_MAX_DISTANCE, "W", this.elements.powerTargetSection, this.elements.powerTarget, this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerTargetPointer, this.elements.powerValueLabel, this.elements.powerScaleLabels, this.elements.powerDelta);
-    this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceTargetSection, this.elements.cadenceTarget, this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceValueLabel, this.elements.cadenceScaleLabels, this.elements.cadenceDelta);
+    this.renderProgressBar(this.power, this.targetPower, POWER_MIN, POWER_MAX, POWER_GRACE_ZONE, POWER_MAX_DISTANCE, "W", this.elements.powerBarContainer, this.elements.powerBarFill, this.elements.powerTargetPointer, this.elements.powerTargetLabel, this.elements.powerValueLabel, this.elements.powerScaleLabels, this.elements.powerDelta);
+    this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceTargetLabel, this.elements.cadenceValueLabel, this.elements.cadenceScaleLabels, this.elements.cadenceDelta);
   }
-  renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, targetSection, targetValue, barContainer, barFill, targetPointer, valueLabel, scaleLabels, delta) {
+  renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, barContainer, barFill, targetPointer, targetLabel, valueLabel, scaleLabels, delta) {
     if (target === null) {
-      targetSection.className = "text-right hidden";
       barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white hidden";
+      targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums hidden";
       valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums hidden";
       scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1 hidden";
       delta.className = "mt-2 text-center font-medium hidden";
@@ -218,8 +217,6 @@ class UIController {
     const targetPos = calculateTargetPosition(target, min, max);
     const color = getColorFromDistance(value, target, graceZone, maxDistance);
     const diff = Math.round(value - target);
-    targetSection.className = "text-right";
-    targetValue.textContent = target.toString();
     barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";
     barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
@@ -227,6 +224,9 @@ class UIController {
     targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
     targetPointer.style.left = `${targetPos}%`;
     targetPointer.style.transform = "translateX(-50%)";
+    targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums";
+    targetLabel.style.left = `${targetPos}%`;
+    targetLabel.textContent = `${target}${unit}`;
     const labelPosition = Math.max(20, Math.min(90, fillPercent));
     valueLabel.style.left = `${labelPosition}%`;
     scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";

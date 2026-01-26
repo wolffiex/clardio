@@ -56,22 +56,16 @@
 
       <!-- Power Meter -->
       <div id="power-meter" class="w-full max-w-2xl mb-10">
-        <div class="flex justify-between items-end mb-3">
-          <div>
-            <span class="text-gray-500 text-sm uppercase tracking-wide">Power</span>
-          </div>
-          <div id="power-target-section" class="text-right hidden">
-            <span class="text-gray-500 text-sm uppercase tracking-wide">Target</span>
-            <div class="text-3xl font-medium text-gray-400">
-              <span id="power-target" class="tabular-nums">---</span><span class="text-xl">W</span>
-            </div>
-          </div>
+        <div class="mb-3">
+          <span class="text-gray-500 text-sm uppercase tracking-wide">Power</span>
         </div>
         <div id="power-bar-container" class="relative h-8 bg-gray-900 rounded-full hidden">
           <!-- Progress bar fill -->
           <div id="power-bar-fill" class="absolute inset-y-0 left-0 rounded-full transition-all duration-300" style="width: 0%"></div>
           <!-- Target pointer -->
           <div id="power-target-pointer" class="absolute top-0 bottom-0 w-0.5 bg-white hidden"></div>
+          <!-- Target value label above pointer -->
+          <div id="power-target-label" class="absolute -top-6 text-sm text-gray-400 tabular-nums hidden" style="transform: translateX(-50%)"></div>
           <!-- Current value label positioned above the fill -->
           <div id="power-value-label" class="absolute -top-10 text-3xl font-bold text-white tabular-nums" style="transform: translateX(-50%)">
             <span id="metric-power">---</span><span class="text-xl text-gray-500">W</span>
@@ -87,22 +81,16 @@
 
       <!-- Cadence Meter -->
       <div id="cadence-meter" class="w-full max-w-2xl mb-10">
-        <div class="flex justify-between items-end mb-3">
-          <div>
-            <span class="text-gray-500 text-sm uppercase tracking-wide">Cadence</span>
-          </div>
-          <div id="cadence-target-section" class="text-right hidden">
-            <span class="text-gray-500 text-sm uppercase tracking-wide">Target</span>
-            <div class="text-3xl font-medium text-gray-400">
-              <span id="cadence-target" class="tabular-nums">---</span><span class="text-xl">rpm</span>
-            </div>
-          </div>
+        <div class="mb-3">
+          <span class="text-gray-500 text-sm uppercase tracking-wide">Cadence</span>
         </div>
         <div id="cadence-bar-container" class="relative h-8 bg-gray-900 rounded-full hidden">
           <!-- Progress bar fill -->
           <div id="cadence-bar-fill" class="absolute inset-y-0 left-0 rounded-full transition-all duration-300" style="width: 0%"></div>
           <!-- Target pointer -->
           <div id="cadence-target-pointer" class="absolute top-0 bottom-0 w-0.5 bg-white hidden"></div>
+          <!-- Target value label above pointer -->
+          <div id="cadence-target-label" class="absolute -top-6 text-sm text-gray-400 tabular-nums hidden" style="transform: translateX(-50%)"></div>
           <!-- Current value label positioned above the fill -->
           <div id="cadence-value-label" class="absolute -top-10 text-3xl font-bold text-white tabular-nums" style="transform: translateX(-50%)">
             <span id="metric-cadence">---</span><span class="text-xl text-gray-500">rpm</span>
