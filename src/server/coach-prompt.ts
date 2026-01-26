@@ -31,6 +31,12 @@ interface WorkoutSummary {
   powerStats: PercentileStats | null;
   hrStats: PercentileStats | null;
   cadenceStats: PercentileStats | null;
+  /** Efficiency Factor: NP / avgHr (higher = more efficient) */
+  efficiencyFactor: number | null;
+  /** Variability Index: NP / avgPower (close to 1.0 = steady) */
+  variabilityIndex: number | null;
+  /** Aerobic Decoupling %: (EF_first - EF_second) / EF_first * 100 */
+  decoupling: number | null;
 }
 
 /**
@@ -78,6 +84,73 @@ interface FitRecord {
   cadence?: number;
 }
 
+/**
+ * Calculate normalized power from power samples (1-second intervals).
+ * Uses 30-second rolling average, raised to 4th power, averaged, then 4th root.
+ */
+function calculateNormalizedPower(powerValues: number[]): number | null {
+  if (powerValues.length < 30) return null;
+
+  // Calculate 30-second rolling averages
+  const rollingAvgs: number[] = [];
+  for (let i = 29; i < powerValues.length; i++) {
+    let sum = 0;
+    for (let j = i - 29; j <= i; j++) {
+      sum += powerValues[j];
+    }
+    rollingAvgs.push(sum / 30);
+  }
+
+  if (rollingAvgs.length === 0) return null;
+
+  // Raise to 4th power, average, take 4th root
+  const avgFourthPower =
+    rollingAvgs.reduce((sum, v) => sum + Math.pow(v, 4), 0) / rollingAvgs.length;
+  return Math.pow(avgFourthPower, 0.25);
+}
+
+/**
+ * Calculate aerobic decoupling from power and HR records.
+ * Splits into first/second half, calculates EF for each, returns decoupling %.
+ */
+function calculateDecoupling(
+  powerValues: number[],
+  hrValues: number[]
+): number | null {
+  // Need matching arrays and enough data
+  const minLength = Math.min(powerValues.length, hrValues.length);
+  if (minLength < 60) return null; // Need at least 60 seconds
+
+  // Use the shorter length for both arrays
+  const power = powerValues.slice(0, minLength);
+  const hr = hrValues.slice(0, minLength);
+
+  const halfPoint = Math.floor(minLength / 2);
+
+  // First half
+  const powerFirst = power.slice(0, halfPoint);
+  const hrFirst = hr.slice(0, halfPoint);
+  const npFirst = calculateNormalizedPower(powerFirst);
+  const avgHrFirst =
+    hrFirst.reduce((sum, v) => sum + v, 0) / hrFirst.length;
+
+  // Second half
+  const powerSecond = power.slice(halfPoint);
+  const hrSecond = hr.slice(halfPoint);
+  const npSecond = calculateNormalizedPower(powerSecond);
+  const avgHrSecond =
+    hrSecond.reduce((sum, v) => sum + v, 0) / hrSecond.length;
+
+  if (!npFirst || !npSecond || avgHrFirst === 0 || avgHrSecond === 0) {
+    return null;
+  }
+
+  const efFirst = npFirst / avgHrFirst;
+  const efSecond = npSecond / avgHrSecond;
+
+  return ((efFirst - efSecond) / efFirst) * 100;
+}
+
 interface FitLap {
   records?: FitRecord[];
 }
@@ -108,19 +181,41 @@ async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
       .map((r) => r.cadence)
       .filter((v): v is number => v !== undefined && v > 0);
 
+    // For decoupling, we need paired power+HR records (same indices)
+    const pairedPower: number[] = [];
+    const pairedHr: number[] = [];
+    for (const r of allRecords) {
+      if (r.power !== undefined && r.power > 0 && r.heart_rate !== undefined && r.heart_rate > 0) {
+        pairedPower.push(r.power);
+        pairedHr.push(r.heart_rate);
+      }
+    }
+
+    const np = session.normalized_power || null;
+    const avgHr = session.avg_heart_rate || 0;
+    const avgPower = session.avg_power || 0;
+
+    // Calculate efficiency metrics
+    const efficiencyFactor = np && avgHr > 0 ? np / avgHr : null;
+    const variabilityIndex = np && avgPower > 0 ? np / avgPower : null;
+    const decoupling = calculateDecoupling(pairedPower, pairedHr);
+
     return {
       date: new Date(session.start_time),
       durationMinutes: Math.round(session.total_elapsed_time / 60),
-      avgPower: session.avg_power || 0,
+      avgPower,
       maxPower: session.max_power || 0,
-      normalizedPower: session.normalized_power || null,
-      avgHr: session.avg_heart_rate || 0,
+      normalizedPower: np,
+      avgHr,
       maxHr: session.max_heart_rate || 0,
       avgCadence: session.avg_cadence || 0,
       calories: session.total_calories || 0,
       powerStats: calculatePercentileStats(powerValues),
       hrStats: calculatePercentileStats(hrValues),
       cadenceStats: calculatePercentileStats(cadenceValues),
+      efficiencyFactor,
+      variabilityIndex,
+      decoupling,
     };
   } catch {
     return null;
@@ -196,10 +291,22 @@ function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
 
   const lines = workouts.map((w) => {
     const relativeTime = formatRelativeTime(w.date);
-    const np = w.normalizedPower ? ` NP:${w.normalizedPower}W` : "";
+
+    // Build efficiency metrics string (EF, VI, Decoup)
+    const efficiencyParts: string[] = [];
+    if (w.efficiencyFactor !== null) {
+      efficiencyParts.push(`EF:${w.efficiencyFactor.toFixed(2)}`);
+    }
+    if (w.variabilityIndex !== null) {
+      efficiencyParts.push(`VI:${w.variabilityIndex.toFixed(2)}`);
+    }
+    if (w.decoupling !== null) {
+      efficiencyParts.push(`Decoup:${w.decoupling.toFixed(1)}%`);
+    }
+    const efficiencyStr = efficiencyParts.length > 0 ? ` | ${efficiencyParts.join(" ")}` : "";
 
     // Main summary line
-    let summary = `- ${relativeTime}: ${w.durationMinutes}min, avg ${w.avgPower}W (max ${w.maxPower}W${np}), HR ${w.avgHr}/${w.maxHr}, ${w.avgCadence}rpm`;
+    let summary = `- ${relativeTime}: ${w.durationMinutes}min${efficiencyStr}`;
 
     // Add percentile stats if available (indented under main line)
     const percentileLines: string[] = [];
