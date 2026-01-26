@@ -284,6 +284,27 @@ function formatPercentiles(
   return `  ${label}: ${pvals} (${bands})`;
 }
 
+const METRICS_REFERENCE = `### Workout Metrics Reference
+
+- **EF (Efficiency Factor)** = NP/HR - aerobic efficiency
+  Typical ranges: 0.4-0.6 beginner | 0.7-1.0 recreational | 1.0-1.5 trained | 1.5+ very fit
+  Higher = more power per heartbeat. Track the trend over weeks/months.
+
+- **VI (Variability Index)** = NP/avgPower - workout steadiness
+  ~1.0 = steady-state | 1.05-1.1 = some variation | >1.1 = intervals/variable
+  When VI>1.1, EF and Decoupling are less meaningful (expected with intervals).
+
+- **Decoup (Aerobic Decoupling)** = cardiac drift over the workout
+  <5% = good aerobic fitness | 5-10% = acceptable | >10% = needs base work
+  Negative = HR dropped or power rose (pacing issue or warmup artifact)
+
+### Interpreting Trends
+
+- **Declining EF** over recent workouts may indicate accumulated fatigue or overtraining
+- **Rising EF** at similar HR indicates improving aerobic fitness
+- **High decoupling** (>10%) in Z2 rides suggests weak aerobic base - prescribe more easy volume
+- **Low decoupling** (<5%) means they can handle longer steady efforts`;
+
 function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
   if (workouts.length === 0) {
     return "No recent workout history available.";
@@ -336,7 +357,10 @@ function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
     workouts.reduce((sum, w) => sum + w.durationMinutes, 0) / workouts.length
   );
 
-  return `Recent workouts (${workouts.length} sessions):
+  return `${METRICS_REFERENCE}
+
+### Recent Workouts (${workouts.length} sessions)
+
 Percentiles show p25/p50/p75/p95 with time in each band (low to high)
 
 ${lines.join("\n")}
