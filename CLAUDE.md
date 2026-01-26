@@ -126,6 +126,16 @@ bun run dev        # Start server with hot reload
 bun run start      # Start server
 ```
 
+### Dumping the Coach Prompt
+
+View the coach's system prompt without running the server:
+
+```bash
+bun scripts/dump-prompt.ts
+```
+
+Useful for iterating on the prompt before testing with the full server.
+
 ## Testing the Client UI
 
 Use the screenshot script with Playwright to visually verify UI states:
