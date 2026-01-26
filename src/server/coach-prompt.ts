@@ -263,109 +263,234 @@ function formatRelativeTime(date: Date): string {
 }
 
 /**
- * Format band times as compact string like "12m/8m/6m/4m/2m"
+ * Get the EF fitness level description based on the EF value.
  */
-function formatBandTimes(bandSeconds: [number, number, number, number, number]): string {
-  return bandSeconds.map((s) => `${Math.round(s / 60)}m`).join("/");
+function getEfLevel(ef: number): string {
+  if (ef >= 1.5) return "very fit";
+  if (ef >= 1.0) return "trained";
+  if (ef >= 0.7) return "recreational";
+  return "beginner";
 }
 
 /**
- * Format percentile stats for a metric.
- * Example: "Power: 80/120/150/200 (12m/8m/6m/4m/2m)"
+ * Calculate the number of weeks between the earliest and latest workout dates.
  */
-function formatPercentiles(
-  label: string,
-  stats: PercentileStats | null,
-  unit: string = ""
-): string {
-  if (!stats) return "";
-  const pvals = `${stats.p25}/${stats.p50}/${stats.p75}/${stats.p95}${unit}`;
-  const bands = formatBandTimes(stats.bandSeconds);
-  return `  ${label}: ${pvals} (${bands})`;
+function calculateWeeksSpan(workouts: WorkoutSummary[]): number {
+  if (workouts.length < 2) return 0;
+  const earliest = workouts[0].date;
+  const latest = workouts[workouts.length - 1].date;
+  const diffMs = latest.getTime() - earliest.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
 }
 
-const METRICS_REFERENCE = `### Workout Metrics Reference
+/**
+ * Format a power-HR effort level from aggregated data.
+ * Returns a string like "150-180W @ 140-150 HR" or just "150-180W" if no HR data.
+ */
+function formatEffortLevel(
+  powerLow: number,
+  powerHigh: number,
+  hrLow?: number,
+  hrHigh?: number
+): string {
+  const powerRange = `${powerLow}-${powerHigh}W`;
+  if (hrLow !== undefined && hrHigh !== undefined && hrLow > 0 && hrHigh > 0) {
+    return `${powerRange} @ ${hrLow}-${hrHigh} HR`;
+  }
+  return powerRange;
+}
 
-- **EF (Efficiency Factor)** = NP/HR - aerobic efficiency
-  Typical ranges: 0.4-0.6 beginner | 0.7-1.0 recreational | 1.0-1.5 trained | 1.5+ very fit
-  Higher = more power per heartbeat. Track the trend over weeks/months.
-
-- **VI (Variability Index)** = NP/avgPower - workout steadiness
-  ~1.0 = steady-state | 1.05-1.1 = some variation | >1.1 = intervals/variable
-  When VI>1.1, EF and Decoupling are less meaningful (expected with intervals).
-
-- **Decoup (Aerobic Decoupling)** = cardiac drift over the workout
-  <5% = good aerobic fitness | 5-10% = acceptable | >10% = needs base work
-  Negative = HR dropped or power rose (pacing issue or warmup artifact)
-
-### Interpreting Trends
-
-- **Declining EF** over recent workouts may indicate accumulated fatigue or overtraining
-- **Rising EF** at similar HR indicates improving aerobic fitness
-- **High decoupling** (>10%) in Z2 rides suggests weak aerobic base - prescribe more easy volume
-- **Low decoupling** (<5%) means they can handle longer steady efforts`;
-
-function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
+/**
+ * Synthesize a rider profile from workout history.
+ * Extracts patterns across all workouts instead of per-workout stats.
+ */
+function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   if (workouts.length === 0) {
     return "No recent workout history available.";
   }
 
-  const lines = workouts.map((w) => {
-    const relativeTime = formatRelativeTime(w.date);
+  const lines: string[] = [];
+  const weeksSpan = calculateWeeksSpan(workouts);
+  const weeksText = weeksSpan > 0 ? ` over ${weeksSpan} week${weeksSpan > 1 ? "s" : ""}` : "";
 
-    // Build efficiency metrics string (EF, VI, Decoup)
-    const efficiencyParts: string[] = [];
-    if (w.efficiencyFactor !== null) {
-      efficiencyParts.push(`EF:${w.efficiencyFactor.toFixed(2)}`);
-    }
-    if (w.variabilityIndex !== null) {
-      efficiencyParts.push(`VI:${w.variabilityIndex.toFixed(2)}`);
-    }
-    if (w.decoupling !== null) {
-      efficiencyParts.push(`Decoup:${w.decoupling.toFixed(1)}%`);
-    }
-    const efficiencyStr = efficiencyParts.length > 0 ? ` | ${efficiencyParts.join(" ")}` : "";
+  lines.push(`## Rider Profile (from ${workouts.length} session${workouts.length > 1 ? "s" : ""}${weeksText})`);
+  lines.push("");
 
-    // Main summary line
-    let summary = `- ${relativeTime}: ${w.durationMinutes}min${efficiencyStr}`;
+  // --- Power Capabilities ---
+  // Aggregate percentile data across all workouts
+  const allP25: number[] = [];
+  const allP50: number[] = [];
+  const allP75: number[] = [];
+  const allP95: number[] = [];
+  const allHrP25: number[] = [];
+  const allHrP50: number[] = [];
+  const allHrP75: number[] = [];
+  const allHrP95: number[] = [];
 
-    // Add percentile stats if available (indented under main line)
-    const percentileLines: string[] = [];
+  for (const w of workouts) {
     if (w.powerStats) {
-      percentileLines.push(formatPercentiles("Power", w.powerStats, "W"));
+      allP25.push(w.powerStats.p25);
+      allP50.push(w.powerStats.p50);
+      allP75.push(w.powerStats.p75);
+      allP95.push(w.powerStats.p95);
     }
     if (w.hrStats) {
-      percentileLines.push(formatPercentiles("HR", w.hrStats, "bpm"));
+      allHrP25.push(w.hrStats.p25);
+      allHrP50.push(w.hrStats.p50);
+      allHrP75.push(w.hrStats.p75);
+      allHrP95.push(w.hrStats.p95);
     }
-    if (w.cadenceStats) {
-      percentileLines.push(formatPercentiles("Cadence", w.cadenceStats, "rpm"));
-    }
+  }
 
-    if (percentileLines.length > 0) {
-      summary += "\n" + percentileLines.join("\n");
-    }
-
-    return summary;
-  });
-
-  // Calculate some aggregate stats
-  const avgOfAvgPower = Math.round(
-    workouts.reduce((sum, w) => sum + w.avgPower, 0) / workouts.length
-  );
   const maxPowerEver = Math.max(...workouts.map((w) => w.maxPower));
-  const avgDuration = Math.round(
-    workouts.reduce((sum, w) => sum + w.durationMinutes, 0) / workouts.length
-  );
 
-  return `${METRICS_REFERENCE}
+  if (allP25.length > 0) {
+    lines.push("Power Capabilities:");
 
-### Recent Workouts (${workouts.length} sessions)
+    // Easy spinning: range of p25 values
+    const easyLow = Math.min(...allP25);
+    const easyHigh = Math.max(...allP25);
+    lines.push(`- Easy spinning: ${easyLow}-${easyHigh}W`);
 
-Percentiles show p25/p50/p75/p95 with time in each band (low to high)
+    // Endurance effort: p50 range with corresponding HR
+    const enduranceLow = Math.min(...allP50);
+    const enduranceHigh = Math.max(...allP50);
+    const enduranceHrLow = allHrP50.length > 0 ? Math.min(...allHrP50) : undefined;
+    const enduranceHrHigh = allHrP50.length > 0 ? Math.max(...allHrP50) : undefined;
+    lines.push(`- Endurance effort: ${formatEffortLevel(enduranceLow, enduranceHigh, enduranceHrLow, enduranceHrHigh)}`);
 
-${lines.join("\n")}
+    // Tempo effort: p75 range with corresponding HR
+    const tempoLow = Math.min(...allP75);
+    const tempoHigh = Math.max(...allP75);
+    const tempoHrLow = allHrP75.length > 0 ? Math.min(...allHrP75) : undefined;
+    const tempoHrHigh = allHrP75.length > 0 ? Math.max(...allHrP75) : undefined;
+    lines.push(`- Tempo effort: ${formatEffortLevel(tempoLow, tempoHigh, tempoHrLow, tempoHrHigh)}`);
 
-Patterns: avg session ${avgDuration}min, typical power ${avgOfAvgPower}W, peak ${maxPowerEver}W`;
+    // Hard efforts: p95 range with corresponding HR
+    const hardLow = Math.min(...allP95);
+    const hardHigh = Math.max(...allP95);
+    const hardHrLow = allHrP95.length > 0 ? Math.min(...allHrP95) : undefined;
+    const hardHrHigh = allHrP95.length > 0 ? Math.max(...allHrP95) : undefined;
+    lines.push(`- Hard efforts: ${formatEffortLevel(hardLow, hardHigh, hardHrLow, hardHrHigh)}`);
+
+    // Peak observed
+    lines.push(`- Peak observed: ${maxPowerEver}W`);
+    lines.push("");
+  }
+
+  // --- Aerobic Fitness ---
+  const efValues = workouts
+    .map((w) => w.efficiencyFactor)
+    .filter((ef): ef is number => ef !== null);
+  const decouplingValues = workouts
+    .map((w) => w.decoupling)
+    .filter((d): d is number => d !== null);
+
+  if (efValues.length > 0 || decouplingValues.length > 0) {
+    lines.push("Aerobic Fitness:");
+
+    if (efValues.length > 0) {
+      const efMin = Math.min(...efValues);
+      const efMax = Math.max(...efValues);
+      const efLevel = getEfLevel((efMin + efMax) / 2);
+      lines.push(`- EF range: ${efMin.toFixed(1)}-${efMax.toFixed(1)} (${efLevel} level)`);
+    }
+
+    // Show decoupling trend if multiple workouts
+    if (decouplingValues.length >= 2) {
+      const decoupTrend = decouplingValues.map((d) => `${d.toFixed(0)}%`).join(" -> ");
+      // Determine if improving (declining decoupling is good)
+      const isImproving =
+        decouplingValues[decouplingValues.length - 1] < decouplingValues[0];
+      const trendNote = isImproving ? " (improving)" : "";
+      lines.push(`- Decoupling trend: ${decoupTrend}${trendNote}`);
+    } else if (decouplingValues.length === 1) {
+      lines.push(`- Decoupling: ${decouplingValues[0].toFixed(0)}%`);
+    }
+
+    // Calculate typical duration at Z2 (steady rides)
+    const steadyWorkouts = workouts.filter(
+      (w) => w.variabilityIndex !== null && w.variabilityIndex < 1.1
+    );
+    if (steadyWorkouts.length > 0) {
+      const avgSteadyDuration = Math.round(
+        steadyWorkouts.reduce((sum, w) => sum + w.durationMinutes, 0) /
+          steadyWorkouts.length
+      );
+      const steadyWithDecoup = steadyWorkouts.filter((w) => w.decoupling !== null);
+      if (steadyWithDecoup.length > 0) {
+        const avgDecoup =
+          steadyWithDecoup.reduce((sum, w) => sum + (w.decoupling ?? 0), 0) /
+          steadyWithDecoup.length;
+        const driftNote =
+          avgDecoup < 5
+            ? "without significant drift"
+            : avgDecoup < 10
+            ? "with moderate drift"
+            : "with significant drift";
+        lines.push(`- Handles ${avgSteadyDuration}min Z2 ${driftNote}`);
+      }
+    }
+
+    lines.push("");
+  }
+
+  // --- Observed Patterns ---
+  lines.push("Observed Patterns:");
+
+  // Typical session duration
+  const durations = workouts.map((w) => w.durationMinutes);
+  const minDuration = Math.min(...durations);
+  const maxDuration = Math.max(...durations);
+  if (minDuration === maxDuration) {
+    lines.push(`- Typical session: ${minDuration}min`);
+  } else {
+    lines.push(`- Typical session: ${minDuration}-${maxDuration}min`);
+  }
+
+  // Cadence range
+  const allCadenceP25: number[] = [];
+  const allCadenceP75: number[] = [];
+  for (const w of workouts) {
+    if (w.cadenceStats) {
+      allCadenceP25.push(w.cadenceStats.p25);
+      allCadenceP75.push(w.cadenceStats.p75);
+    }
+  }
+  if (allCadenceP25.length > 0) {
+    const cadenceLow = Math.min(...allCadenceP25);
+    const cadenceHigh = Math.max(...allCadenceP75);
+    lines.push(`- Cadence usually ${cadenceLow}-${cadenceHigh} rpm`);
+  }
+
+  // Check for power fade pattern (negative decoupling = strong finish)
+  const negativeDecoup = decouplingValues.filter((d) => d < 0);
+  if (negativeDecoup.length > workouts.length / 2) {
+    lines.push("- Often finishes strong (negative decoupling)");
+  } else if (decouplingValues.filter((d) => d > 10).length > workouts.length / 2) {
+    lines.push("- Power tends to drop in second half");
+  }
+
+  lines.push("");
+
+  // --- Recent Load ---
+  lines.push("Recent Load:");
+
+  // Count sessions in past 2 weeks
+  const twoWeeksAgo = new Date();
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+  const recentWorkouts = workouts.filter((w) => w.date >= twoWeeksAgo);
+  lines.push(`- ${recentWorkouts.length} session${recentWorkouts.length !== 1 ? "s" : ""} in past 2 weeks`);
+
+  // Last workout relative time
+  const lastWorkout = workouts[workouts.length - 1];
+  lines.push(`- Last workout: ${formatRelativeTime(lastWorkout.date)}`);
+
+  return lines.join("\n");
+}
+
+function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
+  return synthesizeRiderProfile(workouts);
 }
 
 // Response schema for structured output
