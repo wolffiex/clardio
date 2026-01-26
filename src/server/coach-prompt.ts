@@ -9,6 +9,15 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import FitParser from "fit-file-parser";
 
+interface PercentileStats {
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+  /** Time in seconds spent in each band: [0-p25, p25-p50, p50-p75, p75-p95, p95+] */
+  bandSeconds: [number, number, number, number, number];
+}
+
 interface WorkoutSummary {
   date: Date;
   durationMinutes: number;
@@ -19,6 +28,58 @@ interface WorkoutSummary {
   maxHr: number;
   avgCadence: number;
   calories: number;
+  powerStats: PercentileStats | null;
+  hrStats: PercentileStats | null;
+  cadenceStats: PercentileStats | null;
+}
+
+/**
+ * Calculate a percentile value from a sorted array of numbers.
+ * Uses linear interpolation between values.
+ */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const index = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+/**
+ * Calculate percentile stats and time-in-band for a metric.
+ * Each record is assumed to represent 1 second of data.
+ */
+function calculatePercentileStats(values: number[]): PercentileStats | null {
+  if (values.length === 0) return null;
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const p25 = Math.round(percentile(sorted, 25));
+  const p50 = Math.round(percentile(sorted, 50));
+  const p75 = Math.round(percentile(sorted, 75));
+  const p95 = Math.round(percentile(sorted, 95));
+
+  // Count time in each band (each value = 1 second)
+  const bandSeconds: [number, number, number, number, number] = [0, 0, 0, 0, 0];
+  for (const v of values) {
+    if (v < p25) bandSeconds[0]++;
+    else if (v < p50) bandSeconds[1]++;
+    else if (v < p75) bandSeconds[2]++;
+    else if (v < p95) bandSeconds[3]++;
+    else bandSeconds[4]++;
+  }
+
+  return { p25, p50, p75, p95, bandSeconds };
+}
+
+interface FitRecord {
+  power?: number;
+  heart_rate?: number;
+  cadence?: number;
+}
+
+interface FitLap {
+  records?: FitRecord[];
 }
 
 async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
@@ -32,6 +93,21 @@ async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
       return null;
     }
 
+    // Extract records from all laps
+    const laps = (session.laps || []) as FitLap[];
+    const allRecords = laps.flatMap((lap) => lap.records || []);
+
+    // Extract metric arrays (filter out undefined/zero for cadence since 0 means not pedaling)
+    const powerValues = allRecords
+      .map((r) => r.power)
+      .filter((v): v is number => v !== undefined && v > 0);
+    const hrValues = allRecords
+      .map((r) => r.heart_rate)
+      .filter((v): v is number => v !== undefined && v > 0);
+    const cadenceValues = allRecords
+      .map((r) => r.cadence)
+      .filter((v): v is number => v !== undefined && v > 0);
+
     return {
       date: new Date(session.start_time),
       durationMinutes: Math.round(session.total_elapsed_time / 60),
@@ -42,6 +118,9 @@ async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
       maxHr: session.max_heart_rate || 0,
       avgCadence: session.avg_cadence || 0,
       calories: session.total_calories || 0,
+      powerStats: calculatePercentileStats(powerValues),
+      hrStats: calculatePercentileStats(hrValues),
+      cadenceStats: calculatePercentileStats(cadenceValues),
     };
   } catch {
     return null;
@@ -88,6 +167,28 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/**
+ * Format band times as compact string like "12m/8m/6m/4m/2m"
+ */
+function formatBandTimes(bandSeconds: [number, number, number, number, number]): string {
+  return bandSeconds.map((s) => `${Math.round(s / 60)}m`).join("/");
+}
+
+/**
+ * Format percentile stats for a metric.
+ * Example: "Power: 80/120/150/200 (12m/8m/6m/4m/2m)"
+ */
+function formatPercentiles(
+  label: string,
+  stats: PercentileStats | null,
+  unit: string = ""
+): string {
+  if (!stats) return "";
+  const pvals = `${stats.p25}/${stats.p50}/${stats.p75}/${stats.p95}${unit}`;
+  const bands = formatBandTimes(stats.bandSeconds);
+  return `  ${label}: ${pvals} (${bands})`;
+}
+
 function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
   if (workouts.length === 0) {
     return "No recent workout history available.";
@@ -96,7 +197,27 @@ function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
   const lines = workouts.map((w) => {
     const relativeTime = formatRelativeTime(w.date);
     const np = w.normalizedPower ? ` NP:${w.normalizedPower}W` : "";
-    return `- ${relativeTime}: ${w.durationMinutes}min, avg ${w.avgPower}W (max ${w.maxPower}W${np}), HR ${w.avgHr}/${w.maxHr}, ${w.avgCadence}rpm`;
+
+    // Main summary line
+    let summary = `- ${relativeTime}: ${w.durationMinutes}min, avg ${w.avgPower}W (max ${w.maxPower}W${np}), HR ${w.avgHr}/${w.maxHr}, ${w.avgCadence}rpm`;
+
+    // Add percentile stats if available (indented under main line)
+    const percentileLines: string[] = [];
+    if (w.powerStats) {
+      percentileLines.push(formatPercentiles("Power", w.powerStats, "W"));
+    }
+    if (w.hrStats) {
+      percentileLines.push(formatPercentiles("HR", w.hrStats, "bpm"));
+    }
+    if (w.cadenceStats) {
+      percentileLines.push(formatPercentiles("Cadence", w.cadenceStats, "rpm"));
+    }
+
+    if (percentileLines.length > 0) {
+      summary += "\n" + percentileLines.join("\n");
+    }
+
+    return summary;
   });
 
   // Calculate some aggregate stats
@@ -109,6 +230,8 @@ function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
   );
 
   return `Recent workouts (${workouts.length} sessions):
+Percentiles show p25/p50/p75/p95 with time in each band (low to high)
+
 ${lines.join("\n")}
 
 Patterns: avg session ${avgDuration}min, typical power ${avgOfAvgPower}W, peak ${maxPowerEver}W`;
