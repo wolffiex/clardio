@@ -61,10 +61,31 @@ export async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
 
     return summaries
       .filter((s): s is WorkoutSummary => s !== null)
-      .sort((a, b) => b.date.getTime() - a.date.getTime());
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
   } catch {
     return [];
   }
+}
+
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWorkoutDay = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  );
+  const diffMs = startOfToday.getTime() - startOfWorkoutDay.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 14) return "1 week ago";
+  if (diffDays < 28) return `${Math.floor(diffDays / 7)} weeks ago`;
+
+  // For very old workouts, show the date
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
@@ -73,12 +94,9 @@ function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
   }
 
   const lines = workouts.map((w) => {
-    const date = w.date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+    const relativeTime = formatRelativeTime(w.date);
     const np = w.normalizedPower ? ` NP:${w.normalizedPower}W` : "";
-    return `- ${date}: ${w.durationMinutes}min, avg ${w.avgPower}W (max ${w.maxPower}W${np}), HR ${w.avgHr}/${w.maxHr}, ${w.avgCadence}rpm`;
+    return `- ${relativeTime}: ${w.durationMinutes}min, avg ${w.avgPower}W (max ${w.maxPower}W${np}), HR ${w.avgHr}/${w.maxHr}, ${w.avgCadence}rpm`;
   });
 
   // Calculate some aggregate stats
