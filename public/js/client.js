@@ -175,9 +175,11 @@ class UIController {
   updateMetrics(event) {
     this.power = event.power;
     this.cadence = event.cadence;
-    this.elements.power.textContent = event.power.toString();
+    const displayPower = Math.max(0, Math.min(500, event.power));
+    const displayCadence = Math.max(0, Math.min(200, event.cadence));
+    this.elements.power.textContent = displayPower.toString();
     this.elements.hr.textContent = event.hr.toString();
-    this.elements.cadence.textContent = event.cadence.toString();
+    this.elements.cadence.textContent = displayCadence.toString();
     this.render();
   }
   updateTarget(event) {
@@ -207,6 +209,7 @@ class UIController {
     if (target === null) {
       targetSection.className = "text-right hidden";
       barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
+      valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums hidden";
       scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1 hidden";
       delta.className = "mt-2 text-center font-medium hidden";
       return;
@@ -224,11 +227,17 @@ class UIController {
     targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
     targetPointer.style.left = `${targetPos}%`;
     targetPointer.style.transform = "translateX(-50%)";
-    valueLabel.style.left = `${fillPercent}%`;
+    const labelPosition = Math.max(20, Math.min(90, fillPercent));
+    valueLabel.style.left = `${labelPosition}%`;
     scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
+    const maxDelta = unit === "W" ? 100 : 50;
     delta.className = "mt-2 text-center font-medium";
     delta.style.color = color;
-    delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${diff}${unit}`;
+    if (Math.abs(diff) > maxDelta) {
+      delta.textContent = diff > 0 ? `>${maxDelta}${unit}` : `<-${maxDelta}${unit}`;
+    } else {
+      delta.textContent = diff >= 0 ? `+${diff}${unit}` : `${diff}${unit}`;
+    }
   }
 }
 
