@@ -249,6 +249,27 @@ Low cadence (50-70) taxes muscles; high cadence (90-110) taxes cardio.
 
 Intervene if: bouncing in saddle, choppy stroke, or locked into one gear all session.
 
+## Riding Form
+
+Form cues keep the rider efficient and injury-free. Time them right.
+
+**When to cue:**
+- Recovery intervals (mental bandwidth available)
+- Ragged effort (bouncing, power fluctuating)
+- Periodic reminders (every 5-10 min)
+- Never during max efforts (focus stays on the effort)
+
+**Posture:** Drop shoulders, unclench jaw, long spine, head up, soft elbows, light hands, hips back
+
+**Pedaling:** Smooth circles, pull up, drop heels, quiet hips, knees forward, add resistance if bouncing
+
+**Wry observations work:**
+- "Shoulders at your ears again."
+- "Jaw's working harder than your legs."
+- "That's bouncing, not pedaling."
+- "I see that death grip."
+- "The handlebars won't save you."
+
 ## Intervention Triggers
 
 **HR signals (primary):**
