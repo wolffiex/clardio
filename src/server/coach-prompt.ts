@@ -313,6 +313,101 @@ function getEfLevel(ef: number): string {
 }
 
 /**
+ * Extract max HR observed across all workouts.
+ */
+function getMaxHrFromHistory(workouts: WorkoutSummary[]): number | null {
+  const maxHrs = workouts.map((w) => w.maxHr).filter((hr) => hr > 0);
+  if (maxHrs.length === 0) return null;
+  return Math.max(...maxHrs);
+}
+
+/**
+ * Estimate LTHR (Lactate Threshold Heart Rate) from max HR.
+ * Common approximation: LTHR is ~89% of max HR.
+ */
+function estimateLthr(maxHr: number): number {
+  return Math.round(maxHr * 0.89);
+}
+
+interface HrZones {
+  maxHr: number;
+  lthr: number;
+  z1Max: number; // <85% LTHR
+  z2Min: number; // 85% LTHR
+  z2Max: number; // 89% LTHR
+  z3Min: number; // 90% LTHR
+  z3Max: number; // 94% LTHR
+  z4Min: number; // 95% LTHR
+  z4Max: number; // 99% LTHR
+  z5Min: number; // 100% LTHR
+}
+
+/**
+ * Calculate HR zones based on LTHR.
+ * Zone calculations:
+ * - Z1: <85% LTHR
+ * - Z2: 85-89% LTHR
+ * - Z3: 90-94% LTHR
+ * - Z4: 95-99% LTHR
+ * - Z5: 100% LTHR to max HR
+ */
+function calculateHrZones(maxHr: number): HrZones {
+  const lthr = estimateLthr(maxHr);
+  return {
+    maxHr,
+    lthr,
+    z1Max: Math.round(lthr * 0.85) - 1,
+    z2Min: Math.round(lthr * 0.85),
+    z2Max: Math.round(lthr * 0.89),
+    z3Min: Math.round(lthr * 0.90),
+    z3Max: Math.round(lthr * 0.94),
+    z4Min: Math.round(lthr * 0.95),
+    z4Max: Math.round(lthr * 0.99),
+    z5Min: lthr,
+  };
+}
+
+/**
+ * Format HR zones section for the prompt.
+ */
+function formatHrZones(zones: HrZones): string {
+  return `HR Zones (LTHR ${zones.lthr}, max ${zones.maxHr}):
+- Z1 Recovery: <${zones.z1Max + 1} bpm - easy spinning, recovery
+- Z2 Endurance: ${zones.z2Min}-${zones.z2Max} bpm - aerobic base building
+- Z3 Tempo: ${zones.z3Min}-${zones.z3Max} bpm - gray zone, use sparingly
+- Z4 Threshold: ${zones.z4Min}-${zones.z4Max} bpm - lactate threshold work
+- Z5 VO2max: ${zones.z5Min}-${zones.maxHr} bpm - maximal efforts`;
+}
+
+/**
+ * Estimate FTP from workout history.
+ * Uses 75% of the rider's p95 power from steady-state sessions (VI < 1.1).
+ * If no steady-state data, falls back to 75% of overall p95.
+ */
+function estimateFtp(workouts: WorkoutSummary[]): number | null {
+  // First try: p95 from steady-state sessions (VI < 1.1)
+  const steadyWorkouts = workouts.filter(
+    (w) => w.variabilityIndex !== null && w.variabilityIndex < 1.1 && w.powerStats !== null
+  );
+
+  if (steadyWorkouts.length > 0) {
+    const p95Values = steadyWorkouts.map((w) => w.powerStats!.p95);
+    const maxP95 = Math.max(...p95Values);
+    return Math.round(maxP95 * 0.75);
+  }
+
+  // Fallback: use overall p95 from any workout with power data
+  const workoutsWithPower = workouts.filter((w) => w.powerStats !== null);
+  if (workoutsWithPower.length > 0) {
+    const p95Values = workoutsWithPower.map((w) => w.powerStats!.p95);
+    const maxP95 = Math.max(...p95Values);
+    return Math.round(maxP95 * 0.75);
+  }
+
+  return null;
+}
+
+/**
  * Calculate the number of weeks between the earliest and latest workout dates.
  */
 function calculateWeeksSpan(workouts: WorkoutSummary[]): number {
@@ -595,7 +690,62 @@ export type CoachResponse = {
   };
 };
 
-export function getSystemPrompt(workoutHistory: string): string {
+interface TrainingZonesConfig {
+  hrZones: HrZones | null;
+  estimatedFtp: number | null;
+}
+
+/**
+ * Generate the Training Zones section based on workout data.
+ */
+function generateTrainingZonesSection(config: TrainingZonesConfig): string {
+  const lines: string[] = [];
+  lines.push("## Training Zones");
+  lines.push("");
+
+  // Power zones section with FTP
+  if (config.estimatedFtp !== null) {
+    const ftp = config.estimatedFtp;
+    lines.push(`Estimated FTP: ~${ftp}W (based on observed power distribution)`);
+    lines.push("");
+    lines.push("Power Zones:");
+    lines.push(`- Z1 Recovery: <${Math.round(ftp * 0.55)}W - easy spinning`);
+    lines.push(`- Z2 Endurance: ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)}W - aerobic base, HR stays low`);
+    lines.push(`- Z3 Tempo: ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)}W - gray zone, use sparingly`);
+    lines.push(`- Z4 Threshold: ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)}W - lactate threshold`);
+    lines.push(`- Z5 VO2max: ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)}W - maximal efforts`);
+    lines.push(`- Sweet Spot: ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}W - efficient training stimulus`);
+  } else {
+    lines.push("Power Zones (% FTP - needs workout data to estimate FTP):");
+    lines.push("- Z1 Recovery: <55% FTP - easy spinning");
+    lines.push("- Z2 Endurance: 55-75% FTP - aerobic base, HR stays low");
+    lines.push("- Z3 Tempo: 76-90% FTP - gray zone, use sparingly");
+    lines.push("- Z4 Threshold: 91-105% FTP - lactate threshold");
+    lines.push("- Z5 VO2max: 106-120% FTP - maximal efforts");
+    lines.push("- Sweet Spot: 88-94% FTP - efficient training stimulus");
+  }
+  lines.push("");
+
+  // HR zones section
+  if (config.hrZones !== null) {
+    lines.push(formatHrZones(config.hrZones));
+  } else {
+    lines.push("HR Zones (needs workout data with HR to calculate personalized zones):");
+    lines.push("- Z1 Recovery: easy spinning, recovery");
+    lines.push("- Z2 Endurance: aerobic base building");
+    lines.push("- Z3 Tempo: gray zone, use sparingly");
+    lines.push("- Z4 Threshold: lactate threshold work");
+    lines.push("- Z5 VO2max: maximal efforts");
+  }
+  lines.push("");
+  lines.push("Use HR as the primary guide for intensity. When HR is in the correct zone, the training is working regardless of exact power numbers.");
+
+  return lines.join("\n");
+}
+
+export function getSystemPrompt(workoutHistory: string, trainingZones: TrainingZonesConfig): string {
+  const trainingZonesSection = generateTrainingZonesSection(trainingZones);
+
   return `You are clardio, an AI cycling coach controlling a display screen during indoor cycling workouts. You communicate with the rider through on-screen messages and control their targets.
 
 ## Your Persona
@@ -671,24 +821,7 @@ The point is cardiovascular adaptation:
 - **Z5 VO2max:** Expands maximal oxygen uptake. Short, hard intervals. HR near max.
 - **Sweet Spot (88-94% FTP):** Efficient compromise. Good stimulus, manageable fatigue.
 
-## Training Zones
-
-Power Zones (% FTP):
-- Z1 Recovery: <55% FTP - easy spinning
-- Z2 Endurance: 55-75% FTP - aerobic base, HR stays low
-- Z3 Tempo: 76-90% FTP - gray zone, use sparingly
-- Z4 Threshold: 91-105% FTP - lactate threshold
-- Z5 VO2max: 106-120% FTP - maximal efforts
-- Sweet Spot: 88-94% FTP - efficient training stimulus
-
-HR Zones (LTHR 150, max 168):
-- Z1 Recovery: <128 bpm - easy spinning, recovery
-- Z2 Endurance: 128-134 bpm - aerobic base building
-- Z3 Tempo: 135-141 bpm - gray zone, use sparingly
-- Z4 Threshold: 143-149 bpm - lactate threshold work
-- Z5 VO2max: 150-168 bpm - maximal efforts
-
-Use HR as the primary guide for intensity. When HR is in the correct zone, the training is working regardless of exact power numbers.
+${trainingZonesSection}
 
 ## Cadence Guidance
 
@@ -766,7 +899,15 @@ Periodic metrics updates with:
 export async function buildSystemPrompt(): Promise<string> {
   const workouts = await loadWorkoutHistory();
   const historyText = formatWorkoutHistory(workouts);
-  return getSystemPrompt(historyText);
+
+  // Compute HR zones from max HR observed across all workouts
+  const maxHr = getMaxHrFromHistory(workouts);
+  const hrZones = maxHr !== null ? calculateHrZones(maxHr) : null;
+
+  // Estimate FTP from workout data
+  const estimatedFtp = estimateFtp(workouts);
+
+  return getSystemPrompt(historyText, { hrZones, estimatedFtp });
 }
 
 // When run directly, output the prompt
