@@ -24,16 +24,22 @@ from bleak.backends.device import BLEDevice
 # Configuration
 # ============================================================================
 
-# Device MACs (uppercase with colons for bleak)
-DEVICES = {
-    "gymnasticon": "B8:27:EB:95:0B:90",  # K2Pi - Cycling Power + Speed/Cadence
-    "coros_pace_3": "F7:AF:40:38:08:90",  # COROS PACE 3 - Heart Rate
-}
+# BLE Service UUIDs (full 128-bit format for bleak)
+SERVICE_CYCLING_POWER = "00001818-0000-1000-8000-00805f9b34fb"
+SERVICE_HEART_RATE = "0000180d-0000-1000-8000-00805f9b34fb"
+SERVICE_CSC = "00001816-0000-1000-8000-00805f9b34fb"
 
 # BLE Characteristic UUIDs (bleak uses full UUIDs)
 CHAR_HEART_RATE = "00002a37-0000-1000-8000-00805f9b34fb"
 CHAR_CYCLING_POWER = "00002a63-0000-1000-8000-00805f9b34fb"
 CHAR_CSC_MEASUREMENT = "00002a5b-0000-1000-8000-00805f9b34fb"
+
+# Optional: known device MACs as hints (not required)
+# These can help identify specific devices if multiple are found
+KNOWN_DEVICES = {
+    "B8:27:EB:95:0B:90": "Gymnasticon (K2Pi)",
+    "F7:AF:40:38:08:90": "COROS PACE 3",
+}
 
 SERVER_URL = "http://localhost:3000/api/metrics"
 POST_INTERVAL = 4.0  # seconds
@@ -183,19 +189,22 @@ async def connect_device(
 
 
 async def manage_device(
-    mac: str,
-    name: str,
+    service_name: str,
     characteristics: list[tuple[str, callable]],
     set_connected: callable,
     device_queue: asyncio.Queue,
+    reset_on_disconnect: callable,
 ) -> None:
     """Manage connection to a single device, receiving devices from shared scanner."""
     while True:
         # Wait for our device to be found by the scanner
         device = await device_queue.get()
 
-        log(f"[BLE] Found {name}")
-        client = await connect_device(device, name, characteristics)
+        # Get a friendly name for the device
+        device_label = KNOWN_DEVICES.get(device.address, device.name or device.address)
+        log(f"[BLE] Found {service_name} device: {device_label} ({device.address})")
+
+        client = await connect_device(device, device_label, characteristics)
 
         if client is None:
             log(f"[BLE] Waiting {RECONNECT_DELAY}s before retry...")
@@ -209,51 +218,73 @@ async def manage_device(
             while client.is_connected:
                 await asyncio.sleep(1.0)
         except Exception as e:
-            log(f"[BLE] {name} connection error: {e}")
+            log(f"[BLE] {device_label} connection error: {e}")
 
-        log(f"[BLE] {name} disconnected")
+        log(f"[BLE] {device_label} disconnected")
         set_connected(False)
-
-        # Reset values on disconnect
-        if "gymnasticon" in name.lower():
-            state.power = 0
-            state.cadence = 0
-        else:
-            state.hr = 0
+        reset_on_disconnect()
 
 
 async def scan_for_devices(
-    targets: dict[str, asyncio.Queue],
+    service_queues: dict[str, asyncio.Queue],
+    connected_flags: dict[str, callable],
 ) -> None:
-    """Single scanner that finds devices and dispatches to their queues."""
-    found: set[str] = set()
+    """
+    Scan for devices by service UUID and dispatch to their queues.
 
+    Args:
+        service_queues: Maps service UUID to queue for that service type
+        connected_flags: Maps service UUID to callable returning connection status
+    """
     while True:
-        # Figure out what we're still looking for
-        needed = {mac for mac in targets.keys() if mac not in found}
+        # Figure out what services we need devices for
+        needed_services = [
+            svc for svc, is_connected in connected_flags.items()
+            if not is_connected()
+        ]
 
-        if not needed:
-            # All devices connected, wait a bit then check again
+        if not needed_services:
+            # All services have connected devices, wait then check again
             await asyncio.sleep(RECONNECT_DELAY)
-            found.clear()  # Reset so we can find them again if they disconnect
             continue
 
-        log(f"[BLE] Scanning for {len(needed)} device(s): {', '.join(needed)}")
+        service_names = {
+            SERVICE_CYCLING_POWER: "Cycling Power",
+            SERVICE_HEART_RATE: "Heart Rate",
+            SERVICE_CSC: "CSC",
+        }
+        needed_names = [service_names.get(s, s[-8:]) for s in needed_services]
+        log(f"[BLE] Scanning for services: {', '.join(needed_names)}")
 
         try:
-            devices = await BleakScanner.discover(timeout=10.0)
-            log(f"[BLE] Scan found {len(devices)} device(s)")
+            # Scan for devices advertising our target services
+            devices = await BleakScanner.discover(
+                timeout=10.0,
+                service_uuids=needed_services,
+            )
+            log(f"[BLE] Scan found {len(devices)} device(s) with target services")
 
-            for device in devices:
-                if device.address in needed:
-                    log(f"[BLE] Scanner found target: {device.address} ({device.name})")
-                    found.add(device.address)
-                    await targets[device.address].put(device)
+            # Track which services we found devices for
+            found_services: set[str] = set()
 
-            # Log if we didn't find what we needed
-            still_needed = needed - found
+            for device, adv_data in [(d, d.metadata.get("advertisement_data")) for d in devices]:
+                # Check which of our needed services this device advertises
+                if adv_data and adv_data.service_uuids:
+                    advertised = set(uuid.lower() for uuid in adv_data.service_uuids)
+
+                    for service_uuid in needed_services:
+                        if service_uuid in advertised and service_uuid not in found_services:
+                            device_label = KNOWN_DEVICES.get(device.address, device.name or device.address)
+                            svc_name = service_names.get(service_uuid, service_uuid[-8:])
+                            log(f"[BLE] Found {svc_name} on {device_label} ({device.address})")
+                            found_services.add(service_uuid)
+                            await service_queues[service_uuid].put(device)
+
+            # Log what we're still looking for
+            still_needed = set(needed_services) - found_services
             if still_needed:
-                log(f"[BLE] Still looking for: {', '.join(still_needed)}")
+                still_names = [service_names.get(s, s[-8:]) for s in still_needed]
+                log(f"[BLE] Still looking for: {', '.join(still_names)}")
 
         except Exception as e:
             log(f"[BLE] Scan error: {e}")
@@ -337,41 +368,56 @@ async def async_main() -> None:
     print("=" * 60)
     print("Clardio Bluetooth Sensor Bridge (bleak)")
     print("=" * 60)
-    print(f"Target devices:")
-    print(f"  - Gymnasticon (K2Pi): {DEVICES['gymnasticon']}")
-    print(f"  - COROS PACE 3: {DEVICES['coros_pace_3']}")
+    print("Scanning for BLE services:")
+    print(f"  - Cycling Power (0x1818): power + cadence")
+    print(f"  - Heart Rate (0x180D): heart rate monitor")
     print(f"POSTing to: {SERVER_URL}")
     print("=" * 60)
 
-    # Create queues for each device
-    gymnasticon_queue: asyncio.Queue[BLEDevice] = asyncio.Queue()
-    coros_queue: asyncio.Queue[BLEDevice] = asyncio.Queue()
+    # Create queues for each service type
+    cycling_power_queue: asyncio.Queue[BLEDevice] = asyncio.Queue()
+    heart_rate_queue: asyncio.Queue[BLEDevice] = asyncio.Queue()
 
-    # Map MACs to their queues for the scanner
-    device_queues = {
-        DEVICES["gymnasticon"]: gymnasticon_queue,
-        DEVICES["coros_pace_3"]: coros_queue,
+    # Map service UUIDs to their queues
+    service_queues = {
+        SERVICE_CYCLING_POWER: cycling_power_queue,
+        SERVICE_HEART_RATE: heart_rate_queue,
     }
+
+    # Map service UUIDs to connection status checkers
+    connected_flags = {
+        SERVICE_CYCLING_POWER: lambda: state.connected_gymnasticon,
+        SERVICE_HEART_RATE: lambda: state.connected_coros,
+    }
+
+    def reset_cycling_power():
+        state.power = 0
+        state.cadence = 0
+        state.last_crank_revs = None
+        state.last_crank_time = None
+
+    def reset_heart_rate():
+        state.hr = 0
 
     # Start all tasks
     await asyncio.gather(
-        scan_for_devices(device_queues),
+        scan_for_devices(service_queues, connected_flags),
         manage_device(
-            DEVICES["gymnasticon"],
-            "Gymnasticon",
+            "Cycling Power",
             [
                 (CHAR_CYCLING_POWER, handle_cycling_power),
                 (CHAR_CSC_MEASUREMENT, handle_csc_measurement),
             ],
             lambda v: setattr(state, "connected_gymnasticon", v),
-            gymnasticon_queue,
+            cycling_power_queue,
+            reset_cycling_power,
         ),
         manage_device(
-            DEVICES["coros_pace_3"],
-            "COROS PACE 3",
+            "Heart Rate",
             [(CHAR_HEART_RATE, handle_heart_rate)],
             lambda v: setattr(state, "connected_coros", v),
-            coros_queue,
+            heart_rate_queue,
+            reset_heart_rate,
         ),
         post_metrics_loop(),
         log_status_loop(),
