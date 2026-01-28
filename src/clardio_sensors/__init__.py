@@ -79,11 +79,50 @@ def parse_heart_rate(data: bytes) -> int:
         return data[1]
 
 
-def parse_cycling_power(data: bytes) -> int:
-    """Parse Cycling Power Measurement characteristic (0x2A63)"""
-    # Flags in bytes 0-1, instantaneous power in bytes 2-3
+_power_debug_count = 0
+
+def parse_cycling_power(data: bytes) -> tuple[int, int | None]:
+    """Parse Cycling Power Measurement characteristic (0x2A63)
+
+    Returns: (power, cadence) where cadence is None if not present
+
+    Format per Bluetooth GATT spec:
+    - Bytes 0-1: Flags (16-bit little-endian)
+    - Bytes 2-3: Instantaneous Power (16-bit signed little-endian, watts)
+    - Additional fields depend on flags
+    """
+    global _power_debug_count
+
+    if len(data) < 4:
+        log(f"[PWR] Warning: data too short ({len(data)} bytes): {data.hex()}")
+        return (0, None)
+
+    flags = struct.unpack_from("<H", data, 0)[0]
     power = struct.unpack_from("<h", data, 2)[0]
-    return max(0, power)
+
+    # Debug: log raw bytes for first 10 readings to help diagnose issues
+    if _power_debug_count < 10:
+        log(f"[PWR] Raw: {data.hex()} flags=0x{flags:04x} power={power}W len={len(data)}")
+        _power_debug_count += 1
+
+    # Parse cadence if Crank Revolution Data Present (bit 5)
+    cadence = None
+    if flags & 0x0020:
+        # Calculate offset based on which optional fields are present before crank data
+        offset = 4
+        if flags & 0x0001:  # Pedal Power Balance Present
+            offset += 1
+        if flags & 0x0004:  # Accumulated Torque Present
+            offset += 2
+        if flags & 0x0010:  # Wheel Revolution Data Present
+            offset += 6
+
+        if len(data) >= offset + 4:
+            crank_revs = struct.unpack_from("<H", data, offset)[0]
+            crank_time = struct.unpack_from("<H", data, offset + 2)[0]
+            log(f"[PWR] Crank data: revs={crank_revs} time={crank_time}")
+
+    return (max(0, power), cadence)
 
 
 def parse_csc_measurement(data: bytes) -> int | None:
@@ -144,10 +183,13 @@ def handle_heart_rate(_sender: int, data: bytes) -> None:
 
 
 def handle_cycling_power(_sender: int, data: bytes) -> None:
-    power = parse_cycling_power(data)
+    power, cadence = parse_cycling_power(data)
     if power != state.power:
         log(f"[PWR] {power}W")
     state.power = power
+    # Use cadence from Cycling Power if present and CSC isn't providing it
+    if cadence is not None:
+        state.cadence = cadence
 
 
 def handle_csc_measurement(_sender: int, data: bytes) -> None:
