@@ -258,18 +258,20 @@ async def scan_for_devices(
 
         try:
             # Scan for devices advertising our target services
-            devices = await BleakScanner.discover(
+            # return_adv=True returns dict[str, tuple[BLEDevice, AdvertisementData]]
+            devices_with_adv = await BleakScanner.discover(
                 timeout=10.0,
                 service_uuids=needed_services,
+                return_adv=True,
             )
-            log(f"[BLE] Scan found {len(devices)} device(s) with target services")
+            log(f"[BLE] Scan found {len(devices_with_adv)} device(s) with target services")
 
             # Track which services we found devices for
             found_services: set[str] = set()
 
-            for device, adv_data in [(d, d.metadata.get("advertisement_data")) for d in devices]:
+            for device, adv_data in devices_with_adv.values():
                 # Check which of our needed services this device advertises
-                if adv_data and adv_data.service_uuids:
+                if adv_data.service_uuids:
                     advertised = set(uuid.lower() for uuid in adv_data.service_uuids)
 
                     for service_uuid in needed_services:
