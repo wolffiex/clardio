@@ -19,6 +19,9 @@ import { log } from "./log";
 
 const COACH_INTERVAL_MS = 10_000;
 
+// Latency tracking
+let lastLatencyMs: number | null = null;
+
 // Workout state
 let workoutActive = false;
 let coachTimer: ReturnType<typeof setInterval> | null = null;
@@ -57,6 +60,7 @@ export async function startWorkout(): Promise<void> {
   samples = [];
   coachHistory = [];
   lastSampleTime = null;
+  lastLatencyMs = null;
   currentPlan = null;
   currentPlanId = null;
 
@@ -80,7 +84,9 @@ export async function startWorkout(): Promise<void> {
 
     // 2. Call Opus to generate the plan
     log("Generating workout plan...");
+    const planStart = Date.now();
     currentPlan = await planWorkout(planningPrompt, "Design today's workout.");
+    console.log(`Plan generated in ${Date.now() - planStart}ms`);
     log(`Plan: ${currentPlan.summary}`);
     log(
       `Phases: ${currentPlan.phases.map((p) => `${p.name} (${p.duration_minutes}min ${p.zone})`).join(" -> ")}`
@@ -94,7 +100,10 @@ export async function startWorkout(): Promise<void> {
 
     // 5. Send initial coach message
     const initialMessage = buildUserMessage(true);
+    const initialCallStart = Date.now();
     const response = await sendCoachMessage(coachingPrompt, initialMessage);
+    lastLatencyMs = Date.now() - initialCallStart;
+    console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
       updateCoachHistory(response);
       broadcast("coach", { text: response.message });
@@ -197,7 +206,10 @@ async function onCoachTick(): Promise<void> {
   const userMessage = buildUserMessage(false);
 
   try {
+    const callStart = Date.now();
     const response = await sendCoachMessage(coachingPrompt, userMessage);
+    lastLatencyMs = Date.now() - callStart;
+    console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
       updateCoachHistory(response);
       broadcast("coach", { text: response.message });
@@ -302,6 +314,19 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("## Workout Summary");
     sections.push(
       `Avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+    );
+
+    // Timing info so the coach knows data staleness
+    const lastResponseStr = lastLatencyMs !== null
+      ? `${(lastLatencyMs / 1000).toFixed(1)}s`
+      : "first call";
+    const mostRecentSample = samples[samples.length - 1];
+    const dataAgeMs = Date.now() - mostRecentSample.receivedAt;
+    const dataAgeStr = `~${Math.round(dataAgeMs / 1000)}s`;
+    sections.push("");
+    sections.push("## Timing");
+    sections.push(
+      `Coach interval: 10s | Last response: ${lastResponseStr} | Data age: ${dataAgeStr}`
     );
   }
 

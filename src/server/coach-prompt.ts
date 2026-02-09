@@ -899,6 +899,8 @@ ${previousPlans}
 
 ## Instructions
 
+Every phase must be at least 45 seconds (0.75 minutes). The coach checks in every 10 seconds, so shorter phases cannot be coached effectively. If you want short efforts like 10-second sprints, combine them with their recovery into a single phase (e.g. "10s sprint + 50s recovery" as one 1-minute phase) and describe the structure in the notes field.
+
 Design a 45-minute workout. Vary the format from previous plans shown above. Include specific power targets (in watts if FTP is known, otherwise in zone references), cadence ranges, and position for each phase. Each phase should have form cues appropriate for that effort level.`;
 }
 
