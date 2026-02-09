@@ -338,30 +338,6 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Status: on target or not
-  if (!isStart && samples.length > 0) {
-    sections.push("");
-    sections.push("## Status");
-    const statusSamples = getRecentSamples(30_000);
-    if (statusSamples.length > 0) {
-      const { currentPhase } = getCurrentPhase(elapsed);
-      if (currentPhase) {
-        const avgPwr = Math.round(
-          statusSamples.reduce((s, x) => s + x.power, 0) / statusSamples.length
-        );
-        const avgHrVal = Math.round(
-          statusSamples.reduce((s, x) => s + x.hr, 0) / statusSamples.length
-        );
-        const avgCad = Math.round(
-          statusSamples.reduce((s, x) => s + x.cadence, 0) / statusSamples.length
-        );
-        sections.push(
-          `Current zone: ${currentPhase.zone} | Rider avg: ${avgPwr}W ${avgHrVal}bpm ${avgCad}rpm`
-        );
-      }
-    }
-  }
-
   // Recent coach messages
   if (coachHistory.length > 0) {
     sections.push("");
@@ -369,49 +345,6 @@ function buildUserMessage(isStart: boolean): string {
     for (const h of coachHistory) {
       sections.push(`[${h.elapsed}] "${h.message}" -> ${h.power}W ${h.cadence}rpm`);
     }
-  }
-
-  // Metrics summary (current phase averages + overall max HR)
-  if (samples.length > 0) {
-    const maxHr = Math.max(...samples.map((s) => s.hr));
-    const { phaseElapsed } = getCurrentPhase(elapsed);
-    const phaseSamples = phaseElapsed > 0
-      ? samples.filter((s) => s.receivedAt >= Date.now() - phaseElapsed)
-      : [];
-
-    sections.push("");
-    sections.push("## Workout Summary");
-    if (phaseSamples.length > 0) {
-      const avgPower = Math.round(
-        phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
-      );
-      const avgHr = Math.round(
-        phaseSamples.reduce((s, x) => s + x.hr, 0) / phaseSamples.length
-      );
-      const avgCadence = Math.round(
-        phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
-      );
-      sections.push(
-        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
-      );
-    } else {
-      sections.push(
-        `Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
-      );
-    }
-
-    // Timing info so the coach knows data staleness
-    const lastResponseStr = lastLatencyMs !== null
-      ? `${(lastLatencyMs / 1000).toFixed(1)}s`
-      : "first call";
-    const mostRecentSample = samples[samples.length - 1];
-    const dataAgeMs = Date.now() - mostRecentSample.receivedAt;
-    const dataAgeStr = `~${Math.round(dataAgeMs / 1000)}s`;
-    sections.push("");
-    sections.push("## Timing");
-    sections.push(
-      `Coach interval: 10s | Last response: ${lastResponseStr} | Data age: ${dataAgeStr}`
-    );
   }
 
   // Recent metrics (last 30s) - compact summary
@@ -459,7 +392,37 @@ function buildUserMessage(isStart: boolean): string {
       sections.push(`Trend: ${trend}`);
     }
 
-    sections.push(`Elapsed: ${elapsedStr}`);
+    // Single-line status at the very end
+    sections.push("");
+    sections.push("## Status");
+    const { currentPhase: statusPhase, phaseElapsed: statusPhaseElapsed } =
+      getCurrentPhase(elapsed);
+    const maxHr = samples.length > 0
+      ? Math.max(...samples.map((s) => s.hr))
+      : 0;
+    const phaseSamples = statusPhaseElapsed > 0
+      ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
+      : [];
+
+    const zonePart = statusPhase ? `${statusPhase.zone}` : "---";
+    if (phaseSamples.length > 0) {
+      const avgPower = Math.round(
+        phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
+      );
+      const avgHr = Math.round(
+        phaseSamples.reduce((s, x) => s + x.hr, 0) / phaseSamples.length
+      );
+      const avgCadence = Math.round(
+        phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
+      );
+      sections.push(
+        `${zonePart} | Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+      );
+    } else {
+      sections.push(
+        `${zonePart} | Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+      );
+    }
   } else {
     sections.push("");
     sections.push(
