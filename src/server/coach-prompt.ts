@@ -8,10 +8,7 @@
  * Run scripts/dump-prompt.ts to preview both prompts.
  */
 
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import FitParser from "fit-file-parser";
+import { getDb, type PlanRow } from "./db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,38 +115,8 @@ export const coachSchema = {
 export const responseSchema = coachSchema;
 
 // ---------------------------------------------------------------------------
-// FIT file parsing (unchanged)
+// Statistics helpers
 // ---------------------------------------------------------------------------
-
-interface PercentileStats {
-  p25: number;
-  p50: number;
-  p75: number;
-  p95: number;
-  /** Time in seconds spent in each band: [0-p25, p25-p50, p50-p75, p75-p95, p95+] */
-  bandSeconds: [number, number, number, number, number];
-}
-
-interface WorkoutSummary {
-  date: Date;
-  durationMinutes: number;
-  avgPower: number;
-  maxPower: number;
-  normalizedPower: number | null;
-  avgHr: number;
-  maxHr: number;
-  avgCadence: number;
-  calories: number;
-  powerStats: PercentileStats | null;
-  hrStats: PercentileStats | null;
-  cadenceStats: PercentileStats | null;
-  /** Efficiency Factor: NP / avgHr (higher = more efficient) */
-  efficiencyFactor: number | null;
-  /** Variability Index: NP / avgPower (close to 1.0 = steady) */
-  variabilityIndex: number | null;
-  /** Aerobic Decoupling %: (EF_first - EF_second) / EF_first * 100 */
-  decoupling: number | null;
-}
 
 /**
  * Calculate a percentile value from a sorted array of numbers.
@@ -164,233 +131,191 @@ function percentile(sorted: number[], p: number): number {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
 }
 
-/**
- * Calculate percentile stats and time-in-band for a metric.
- * Each record is assumed to represent 1 second of data.
- */
+interface PercentileStats {
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}
+
 function calculatePercentileStats(values: number[]): PercentileStats | null {
   if (values.length === 0) return null;
 
   const sorted = [...values].sort((a, b) => a - b);
-  const p25 = Math.round(percentile(sorted, 25));
-  const p50 = Math.round(percentile(sorted, 50));
-  const p75 = Math.round(percentile(sorted, 75));
-  const p95 = Math.round(percentile(sorted, 95));
-
-  // Count time in each band (each value = 1 second)
-  const bandSeconds: [number, number, number, number, number] = [0, 0, 0, 0, 0];
-  for (const v of values) {
-    if (v < p25) bandSeconds[0]++;
-    else if (v < p50) bandSeconds[1]++;
-    else if (v < p75) bandSeconds[2]++;
-    else if (v < p95) bandSeconds[3]++;
-    else bandSeconds[4]++;
-  }
-
-  return { p25, p50, p75, p95, bandSeconds };
-}
-
-interface FitRecord {
-  power?: number;
-  heart_rate?: number;
-  cadence?: number;
+  return {
+    p25: Math.round(percentile(sorted, 25)),
+    p50: Math.round(percentile(sorted, 50)),
+    p75: Math.round(percentile(sorted, 75)),
+    p95: Math.round(percentile(sorted, 95)),
+  };
 }
 
 /**
- * Calculate normalized power from power samples (1-second intervals).
+ * Calculate normalized power from power samples.
  * Uses 30-second rolling average, raised to 4th power, averaged, then 4th root.
+ * sampleIntervalSec is the time each sample represents.
  */
-function calculateNormalizedPower(powerValues: number[]): number | null {
-  if (powerValues.length < 30) return null;
+function calculateNormalizedPower(
+  powerValues: number[],
+  sampleIntervalSec: number
+): number | null {
+  const windowSamples = Math.round(30 / sampleIntervalSec);
+  if (powerValues.length < windowSamples) return null;
 
-  // Calculate 30-second rolling averages
   const rollingAvgs: number[] = [];
-  for (let i = 29; i < powerValues.length; i++) {
+  for (let i = windowSamples - 1; i < powerValues.length; i++) {
     let sum = 0;
-    for (let j = i - 29; j <= i; j++) {
+    for (let j = i - windowSamples + 1; j <= i; j++) {
       sum += powerValues[j];
     }
-    rollingAvgs.push(sum / 30);
+    rollingAvgs.push(sum / windowSamples);
   }
 
   if (rollingAvgs.length === 0) return null;
 
-  // Raise to 4th power, average, take 4th root
   const avgFourthPower =
-    rollingAvgs.reduce((sum, v) => sum + Math.pow(v, 4), 0) / rollingAvgs.length;
+    rollingAvgs.reduce((sum, v) => sum + Math.pow(v, 4), 0) /
+    rollingAvgs.length;
   return Math.pow(avgFourthPower, 0.25);
 }
 
-/**
- * Calculate aerobic decoupling from power and HR records.
- * Splits into first/second half, calculates EF for each, returns decoupling %.
- */
-function calculateDecoupling(
-  powerValues: number[],
-  hrValues: number[]
-): number | null {
-  // Need matching arrays and enough data
-  const minLength = Math.min(powerValues.length, hrValues.length);
-  if (minLength < 60) return null; // Need at least 60 seconds
+// ---------------------------------------------------------------------------
+// DB-based workout summary
+// ---------------------------------------------------------------------------
 
-  // Use the shorter length for both arrays
-  const power = powerValues.slice(0, minLength);
-  const hr = hrValues.slice(0, minLength);
-
-  const halfPoint = Math.floor(minLength / 2);
-
-  // First half
-  const powerFirst = power.slice(0, halfPoint);
-  const hrFirst = hr.slice(0, halfPoint);
-  const npFirst = calculateNormalizedPower(powerFirst);
-  const avgHrFirst =
-    hrFirst.reduce((sum, v) => sum + v, 0) / hrFirst.length;
-
-  // Second half
-  const powerSecond = power.slice(halfPoint);
-  const hrSecond = hr.slice(halfPoint);
-  const npSecond = calculateNormalizedPower(powerSecond);
-  const avgHrSecond =
-    hrSecond.reduce((sum, v) => sum + v, 0) / hrSecond.length;
-
-  if (!npFirst || !npSecond || avgHrFirst === 0 || avgHrSecond === 0) {
-    return null;
-  }
-
-  const efFirst = npFirst / avgHrFirst;
-  const efSecond = npSecond / avgHrSecond;
-
-  return ((efFirst - efSecond) / efFirst) * 100;
+interface SessionSummary {
+  planId: number;
+  date: Date;
+  completed: boolean;
+  planSummary: string | null;
+  durationMinutes: number;
+  avgPower: number;
+  maxPower: number;
+  normalizedPower: number | null;
+  avgHr: number;
+  maxHr: number;
+  avgCadence: number;
+  powerStats: PercentileStats | null;
+  hrStats: PercentileStats | null;
+  cadenceStats: PercentileStats | null;
+  efficiencyFactor: number | null;
+  variabilityIndex: number | null;
 }
 
-interface FitLap {
-  records?: FitRecord[];
+type SampleRow = {
+  timestamp_ms: number;
+  duration_ms: number;
+  power: number | null;
+  hr: number | null;
+  cadence: number | null;
+};
+
+function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary | null {
+  if (samples.length === 0) return null;
+
+  const powerValues = samples
+    .map((s) => s.power)
+    .filter((v): v is number => v !== null && v > 0);
+  const hrValues = samples
+    .map((s) => s.hr)
+    .filter((v): v is number => v !== null && v > 0);
+  const cadenceValues = samples
+    .map((s) => s.cadence)
+    .filter((v): v is number => v !== null && v > 0);
+
+  // Total duration from samples
+  const totalMs = samples.reduce((sum, s) => sum + s.duration_ms, 0);
+  const durationMinutes = Math.round(totalMs / 60000);
+
+  if (durationMinutes < 1) return null;
+
+  const avgPower =
+    powerValues.length > 0
+      ? Math.round(powerValues.reduce((s, v) => s + v, 0) / powerValues.length)
+      : 0;
+  const maxPower =
+    powerValues.length > 0 ? Math.max(...powerValues) : 0;
+  const avgHr =
+    hrValues.length > 0
+      ? Math.round(hrValues.reduce((s, v) => s + v, 0) / hrValues.length)
+      : 0;
+  const maxHr =
+    hrValues.length > 0 ? Math.max(...hrValues) : 0;
+  const avgCadence =
+    cadenceValues.length > 0
+      ? Math.round(cadenceValues.reduce((s, v) => s + v, 0) / cadenceValues.length)
+      : 0;
+
+  // Typical sample interval in seconds
+  const sampleIntervalSec =
+    samples.length > 0
+      ? samples.reduce((s, r) => s + r.duration_ms, 0) / samples.length / 1000
+      : 3;
+
+  const np = calculateNormalizedPower(powerValues, sampleIntervalSec);
+  const efficiencyFactor = np && avgHr > 0 ? np / avgHr : null;
+  const variabilityIndex = np && avgPower > 0 ? np / avgPower : null;
+
+  return {
+    planId: plan.id,
+    date: new Date(plan.created_at + "Z"),
+    completed: plan.completed === 1,
+    planSummary: plan.summary,
+    durationMinutes,
+    avgPower,
+    maxPower,
+    normalizedPower: np,
+    avgHr,
+    maxHr,
+    avgCadence,
+    powerStats: calculatePercentileStats(powerValues),
+    hrStats: calculatePercentileStats(hrValues),
+    cadenceStats: calculatePercentileStats(cadenceValues),
+    efficiencyFactor,
+    variabilityIndex,
+  };
 }
 
-async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
-  try {
-    const buffer = await readFile(filePath);
-    const parser = new FitParser({ force: true, mode: "cascade" });
-    const data = await parser.parseAsync(buffer);
+function loadSessionsFromDb(): SessionSummary[] {
+  const db = getDb();
 
-    const session = data.activity?.sessions?.[0];
-    if (!session || session.sport !== "cycling") {
-      return null;
+  // Get plans that have samples (any session we collected data for)
+  const plans = db
+    .query(
+      `SELECT p.* FROM plans p
+       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+       ORDER BY p.created_at ASC`
+    )
+    .all() as PlanRow[];
+
+  const sessions: SessionSummary[] = [];
+  for (const plan of plans) {
+    const samples = db
+      .query(
+        "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
+      )
+      .all(plan.id) as SampleRow[];
+
+    const summary = summarizeSession(plan, samples);
+    if (summary) {
+      sessions.push(summary);
     }
-
-    // Extract records from all laps
-    const laps = (session.laps || []) as FitLap[];
-    const allRecords = laps.flatMap((lap) => lap.records || []);
-
-    // Extract metric arrays (filter out undefined/zero for cadence since 0 means not pedaling)
-    const powerValues = allRecords
-      .map((r) => r.power)
-      .filter((v): v is number => v !== undefined && v > 0);
-    const hrValues = allRecords
-      .map((r) => r.heart_rate)
-      .filter((v): v is number => v !== undefined && v > 0);
-    const cadenceValues = allRecords
-      .map((r) => r.cadence)
-      .filter((v): v is number => v !== undefined && v > 0);
-
-    // For decoupling, we need paired power+HR records (same indices)
-    const pairedPower: number[] = [];
-    const pairedHr: number[] = [];
-    for (const r of allRecords) {
-      if (r.power !== undefined && r.power > 0 && r.heart_rate !== undefined && r.heart_rate > 0) {
-        pairedPower.push(r.power);
-        pairedHr.push(r.heart_rate);
-      }
-    }
-
-    const np = session.normalized_power || null;
-    const avgHr = session.avg_heart_rate || 0;
-    const avgPower = session.avg_power || 0;
-
-    // Calculate efficiency metrics
-    const efficiencyFactor = np && avgHr > 0 ? np / avgHr : null;
-    const variabilityIndex = np && avgPower > 0 ? np / avgPower : null;
-    const decoupling = calculateDecoupling(pairedPower, pairedHr);
-
-    return {
-      date: new Date(session.start_time),
-      durationMinutes: Math.round(session.total_elapsed_time / 60),
-      avgPower,
-      maxPower: session.max_power || 0,
-      normalizedPower: np,
-      avgHr,
-      maxHr: session.max_heart_rate || 0,
-      avgCadence: session.avg_cadence || 0,
-      calories: session.total_calories || 0,
-      powerStats: calculatePercentileStats(powerValues),
-      hrStats: calculatePercentileStats(hrValues),
-      cadenceStats: calculatePercentileStats(cadenceValues),
-      efficiencyFactor,
-      variabilityIndex,
-      decoupling,
-    };
-  } catch {
-    return null;
   }
-}
 
-async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
-  const fitDir = join(homedir(), "fit");
-
-  try {
-    const files = await readdir(fitDir);
-    const fitFiles = files.filter((f) => f.endsWith(".fit"));
-
-    const summaries = await Promise.all(
-      fitFiles.map((f) => parseFitFile(join(fitDir, f)))
-    );
-
-    return summaries
-      .filter((s): s is WorkoutSummary => s !== null)
-      .sort((a, b) => a.date.getTime() - b.date.getTime());
-  } catch {
-    return [];
-  }
+  return sessions;
 }
 
 // ---------------------------------------------------------------------------
-// Rider profile synthesis (unchanged)
+// Rider profile synthesis from DB
 // ---------------------------------------------------------------------------
-
-/**
- * Detect if a decoupling value is an outlier and return explanation if so.
- */
-function detectDecouplingOutlier(
-  decoupling: number,
-  variabilityIndex: number | null,
-  allDecouplings: number[]
-): string | null {
-  const mean = allDecouplings.reduce((sum, d) => sum + d, 0) / allDecouplings.length;
-  const variance = allDecouplings.reduce((sum, d) => sum + Math.pow(d - mean, 2), 0) / allDecouplings.length;
-  const stdDev = Math.sqrt(variance);
-
-  const isStatisticalOutlier = stdDev > 0 && Math.abs(decoupling - mean) > 2 * stdDev;
-  const isHighDecoupling = decoupling > 15;
-  const isVariableSession = variabilityIndex !== null && variabilityIndex > 1.2;
-
-  if (!isStatisticalOutlier && !isHighDecoupling) {
-    return null;
-  }
-
-  if (isHighDecoupling && isVariableSession) {
-    return `VI ${variabilityIndex!.toFixed(2)} session`;
-  } else if (isHighDecoupling) {
-    return "unusually high";
-  } else if (isStatisticalOutlier) {
-    return "outlier";
-  }
-
-  return null;
-}
 
 function formatRelativeTime(date: Date): string {
   const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
   const startOfWorkoutDay = new Date(
     date.getFullYear(),
     date.getMonth(),
@@ -415,15 +340,230 @@ function getEfLevel(ef: number): string {
   return "beginner";
 }
 
-function getMaxHrFromHistory(workouts: WorkoutSummary[]): number | null {
-  const maxHrs = workouts.map((w) => w.maxHr).filter((hr) => hr > 0);
+function formatEffortLevel(
+  powerLow: number,
+  powerHigh: number,
+  hrLow?: number,
+  hrHigh?: number
+): string {
+  const powerRange = `${powerLow}-${powerHigh}W`;
+  if (
+    hrLow !== undefined &&
+    hrHigh !== undefined &&
+    hrLow > 0 &&
+    hrHigh > 0
+  ) {
+    return `${powerRange} @ ${hrLow}-${hrHigh} HR`;
+  }
+  return powerRange;
+}
+
+function calculateWeeksSpan(sessions: SessionSummary[]): number {
+  if (sessions.length < 2) return 0;
+  const earliest = sessions[0].date;
+  const latest = sessions[sessions.length - 1].date;
+  const diffMs = latest.getTime() - earliest.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
+}
+
+function estimateFtpFromSessions(sessions: SessionSummary[]): number | null {
+  // First try: p95 from steady-state sessions (VI < 1.1)
+  const steadySessions = sessions.filter(
+    (s) =>
+      s.variabilityIndex !== null &&
+      s.variabilityIndex < 1.1 &&
+      s.powerStats !== null
+  );
+
+  if (steadySessions.length > 0) {
+    const p95Values = steadySessions.map((s) => s.powerStats!.p95);
+    const maxP95 = Math.max(...p95Values);
+    return Math.round(maxP95 * 0.75);
+  }
+
+  // Fallback: use overall p95 from any session with power data
+  const sessionsWithPower = sessions.filter((s) => s.powerStats !== null);
+  if (sessionsWithPower.length > 0) {
+    const p95Values = sessionsWithPower.map((s) => s.powerStats!.p95);
+    const maxP95 = Math.max(...p95Values);
+    return Math.round(maxP95 * 0.75);
+  }
+
+  return null;
+}
+
+function getMaxHrFromSessions(sessions: SessionSummary[]): number | null {
+  const maxHrs = sessions.map((s) => s.maxHr).filter((hr) => hr > 0);
   if (maxHrs.length === 0) return null;
   return Math.max(...maxHrs);
 }
 
-function estimateLthr(maxHr: number): number {
-  return Math.round(maxHr * 0.89);
+function buildRiderProfileFromDb(): string {
+  const sessions = loadSessionsFromDb();
+
+  if (sessions.length === 0) {
+    return "New rider -- no history available.";
+  }
+
+  const lines: string[] = [];
+  const weeksSpan = calculateWeeksSpan(sessions);
+  const weeksText =
+    weeksSpan > 0
+      ? ` over ${weeksSpan} week${weeksSpan > 1 ? "s" : ""}`
+      : "";
+
+  lines.push(
+    `## Rider Profile (from ${sessions.length} session${sessions.length > 1 ? "s" : ""}${weeksText})`
+  );
+  lines.push("");
+
+  // --- Power Capabilities ---
+  const allP25: number[] = [];
+  const allP50: number[] = [];
+  const allP75: number[] = [];
+  const allP95: number[] = [];
+  const allHrP25: number[] = [];
+  const allHrP50: number[] = [];
+  const allHrP75: number[] = [];
+  const allHrP95: number[] = [];
+
+  for (const s of sessions) {
+    if (s.powerStats) {
+      allP25.push(s.powerStats.p25);
+      allP50.push(s.powerStats.p50);
+      allP75.push(s.powerStats.p75);
+      allP95.push(s.powerStats.p95);
+    }
+    if (s.hrStats) {
+      allHrP25.push(s.hrStats.p25);
+      allHrP50.push(s.hrStats.p50);
+      allHrP75.push(s.hrStats.p75);
+      allHrP95.push(s.hrStats.p95);
+    }
+  }
+
+  const maxPowerEver = Math.max(...sessions.map((s) => s.maxPower));
+
+  if (allP25.length > 0) {
+    lines.push("Power Capabilities:");
+
+    const easyLow = Math.min(...allP25);
+    const easyHigh = Math.max(...allP25);
+    lines.push(`- Easy spinning: ${easyLow}-${easyHigh}W`);
+
+    const enduranceLow = Math.min(...allP50);
+    const enduranceHigh = Math.max(...allP50);
+    const enduranceHrLow =
+      allHrP50.length > 0 ? Math.min(...allHrP50) : undefined;
+    const enduranceHrHigh =
+      allHrP50.length > 0 ? Math.max(...allHrP50) : undefined;
+    lines.push(
+      `- Endurance effort: ${formatEffortLevel(enduranceLow, enduranceHigh, enduranceHrLow, enduranceHrHigh)}`
+    );
+
+    const tempoLow = Math.min(...allP75);
+    const tempoHigh = Math.max(...allP75);
+    const tempoHrLow =
+      allHrP75.length > 0 ? Math.min(...allHrP75) : undefined;
+    const tempoHrHigh =
+      allHrP75.length > 0 ? Math.max(...allHrP75) : undefined;
+    lines.push(
+      `- Tempo effort: ${formatEffortLevel(tempoLow, tempoHigh, tempoHrLow, tempoHrHigh)}`
+    );
+
+    const hardLow = Math.min(...allP95);
+    const hardHigh = Math.max(...allP95);
+    const hardHrLow =
+      allHrP95.length > 0 ? Math.min(...allHrP95) : undefined;
+    const hardHrHigh =
+      allHrP95.length > 0 ? Math.max(...allHrP95) : undefined;
+    lines.push(
+      `- Hard efforts: ${formatEffortLevel(hardLow, hardHigh, hardHrLow, hardHrHigh)}`
+    );
+
+    lines.push(`- Peak observed: ${maxPowerEver}W`);
+    lines.push("");
+  }
+
+  // --- Aerobic Fitness ---
+  const efValues = sessions
+    .map((s) => s.efficiencyFactor)
+    .filter((ef): ef is number => ef !== null);
+
+  if (efValues.length > 0) {
+    lines.push("Aerobic Fitness:");
+
+    const efMin = Math.min(...efValues);
+    const efMax = Math.max(...efValues);
+    const efLevel = getEfLevel((efMin + efMax) / 2);
+    lines.push(
+      `- EF range: ${efMin.toFixed(1)}-${efMax.toFixed(1)} (${efLevel} level)`
+    );
+
+    const steadySessions = sessions.filter(
+      (s) => s.variabilityIndex !== null && s.variabilityIndex < 1.1
+    );
+    if (steadySessions.length > 0) {
+      const avgSteadyDuration = Math.round(
+        steadySessions.reduce((sum, s) => sum + s.durationMinutes, 0) /
+          steadySessions.length
+      );
+      lines.push(`- Handles ${avgSteadyDuration}min steady efforts`);
+    }
+
+    lines.push("");
+  }
+
+  // --- Observed Patterns ---
+  lines.push("Observed Patterns:");
+
+  const durations = sessions.map((s) => s.durationMinutes);
+  const minDuration = Math.min(...durations);
+  const maxDuration = Math.max(...durations);
+  if (minDuration === maxDuration) {
+    lines.push(`- Typical session: ${minDuration}min`);
+  } else {
+    lines.push(`- Typical session: ${minDuration}-${maxDuration}min`);
+  }
+
+  const allCadenceP25: number[] = [];
+  const allCadenceP75: number[] = [];
+  for (const s of sessions) {
+    if (s.cadenceStats) {
+      allCadenceP25.push(s.cadenceStats.p25);
+      allCadenceP75.push(s.cadenceStats.p75);
+    }
+  }
+  if (allCadenceP25.length > 0) {
+    const cadenceLow = Math.min(...allCadenceP25);
+    const cadenceHigh = Math.max(...allCadenceP75);
+    lines.push(`- Cadence: ${cadenceLow}-${cadenceHigh} rpm`);
+  }
+
+  lines.push("");
+
+  // --- Recent Load ---
+  lines.push("Recent Load:");
+
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+  const sessionsLastWeek = sessions.filter((s) => s.date >= oneWeekAgo);
+  const sessionsLast2Weeks = sessions.filter((s) => s.date >= twoWeeksAgo);
+  lines.push(
+    `- ${sessionsLastWeek.length} session${sessionsLastWeek.length !== 1 ? "s" : ""} in past week, ${sessionsLast2Weeks.length} in past 2 weeks`
+  );
+
+  const lastSession = sessions[sessions.length - 1];
+  lines.push(`- Last workout: ${formatRelativeTime(lastSession.date)}`);
+
+  return lines.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Training zones
+// ---------------------------------------------------------------------------
 
 interface HrZones {
   maxHr: number;
@@ -439,7 +579,7 @@ interface HrZones {
 }
 
 function calculateHrZones(maxHr: number): HrZones {
-  const lthr = estimateLthr(maxHr);
+  const lthr = Math.round(maxHr * 0.89);
   return {
     maxHr,
     lthr,
@@ -462,248 +602,6 @@ function formatHrZones(zones: HrZones): string {
 - Z4 Threshold: ${zones.z4Min}-${zones.z4Max} bpm
 - Z5 VO2max: ${zones.z5Min}-${zones.maxHr} bpm`;
 }
-
-function formatEffortLevel(
-  powerLow: number,
-  powerHigh: number,
-  hrLow?: number,
-  hrHigh?: number
-): string {
-  const powerRange = `${powerLow}-${powerHigh}W`;
-  if (hrLow !== undefined && hrHigh !== undefined && hrLow > 0 && hrHigh > 0) {
-    return `${powerRange} @ ${hrLow}-${hrHigh} HR`;
-  }
-  return powerRange;
-}
-
-function estimateFtp(workouts: WorkoutSummary[]): number | null {
-  // First try: p95 from steady-state sessions (VI < 1.1)
-  const steadyWorkouts = workouts.filter(
-    (w) => w.variabilityIndex !== null && w.variabilityIndex < 1.1 && w.powerStats !== null
-  );
-
-  if (steadyWorkouts.length > 0) {
-    const p95Values = steadyWorkouts.map((w) => w.powerStats!.p95);
-    const maxP95 = Math.max(...p95Values);
-    return Math.round(maxP95 * 0.75);
-  }
-
-  // Fallback: use overall p95 from any workout with power data
-  const workoutsWithPower = workouts.filter((w) => w.powerStats !== null);
-  if (workoutsWithPower.length > 0) {
-    const p95Values = workoutsWithPower.map((w) => w.powerStats!.p95);
-    const maxP95 = Math.max(...p95Values);
-    return Math.round(maxP95 * 0.75);
-  }
-
-  return null;
-}
-
-function calculateWeeksSpan(workouts: WorkoutSummary[]): number {
-  if (workouts.length < 2) return 0;
-  const earliest = workouts[0].date;
-  const latest = workouts[workouts.length - 1].date;
-  const diffMs = latest.getTime() - earliest.getTime();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
-}
-
-function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
-  if (workouts.length === 0) {
-    return "No recent workout history available.";
-  }
-
-  const lines: string[] = [];
-  const weeksSpan = calculateWeeksSpan(workouts);
-  const weeksText = weeksSpan > 0 ? ` over ${weeksSpan} week${weeksSpan > 1 ? "s" : ""}` : "";
-
-  lines.push(`## Rider Profile (from ${workouts.length} session${workouts.length > 1 ? "s" : ""}${weeksText})`);
-  lines.push("");
-
-  // --- Power Capabilities ---
-  const allP25: number[] = [];
-  const allP50: number[] = [];
-  const allP75: number[] = [];
-  const allP95: number[] = [];
-  const allHrP25: number[] = [];
-  const allHrP50: number[] = [];
-  const allHrP75: number[] = [];
-  const allHrP95: number[] = [];
-
-  for (const w of workouts) {
-    if (w.powerStats) {
-      allP25.push(w.powerStats.p25);
-      allP50.push(w.powerStats.p50);
-      allP75.push(w.powerStats.p75);
-      allP95.push(w.powerStats.p95);
-    }
-    if (w.hrStats) {
-      allHrP25.push(w.hrStats.p25);
-      allHrP50.push(w.hrStats.p50);
-      allHrP75.push(w.hrStats.p75);
-      allHrP95.push(w.hrStats.p95);
-    }
-  }
-
-  const maxPowerEver = Math.max(...workouts.map((w) => w.maxPower));
-
-  if (allP25.length > 0) {
-    lines.push("Power Capabilities:");
-
-    const easyLow = Math.min(...allP25);
-    const easyHigh = Math.max(...allP25);
-    lines.push(`- Easy spinning: ${easyLow}-${easyHigh}W`);
-
-    const enduranceLow = Math.min(...allP50);
-    const enduranceHigh = Math.max(...allP50);
-    const enduranceHrLow = allHrP50.length > 0 ? Math.min(...allHrP50) : undefined;
-    const enduranceHrHigh = allHrP50.length > 0 ? Math.max(...allHrP50) : undefined;
-    lines.push(`- Endurance effort: ${formatEffortLevel(enduranceLow, enduranceHigh, enduranceHrLow, enduranceHrHigh)}`);
-
-    const tempoLow = Math.min(...allP75);
-    const tempoHigh = Math.max(...allP75);
-    const tempoHrLow = allHrP75.length > 0 ? Math.min(...allHrP75) : undefined;
-    const tempoHrHigh = allHrP75.length > 0 ? Math.max(...allHrP75) : undefined;
-    lines.push(`- Tempo effort: ${formatEffortLevel(tempoLow, tempoHigh, tempoHrLow, tempoHrHigh)}`);
-
-    const hardLow = Math.min(...allP95);
-    const hardHigh = Math.max(...allP95);
-    const hardHrLow = allHrP95.length > 0 ? Math.min(...allHrP95) : undefined;
-    const hardHrHigh = allHrP95.length > 0 ? Math.max(...allHrP95) : undefined;
-    lines.push(`- Hard efforts: ${formatEffortLevel(hardLow, hardHigh, hardHrLow, hardHrHigh)}`);
-
-    lines.push(`- Peak observed: ${maxPowerEver}W`);
-    lines.push("");
-  }
-
-  // --- Aerobic Fitness ---
-  const efValues = workouts
-    .map((w) => w.efficiencyFactor)
-    .filter((ef): ef is number => ef !== null);
-  const decouplingValues = workouts
-    .map((w) => w.decoupling)
-    .filter((d): d is number => d !== null);
-
-  if (efValues.length > 0 || decouplingValues.length > 0) {
-    lines.push("Aerobic Fitness:");
-
-    if (efValues.length > 0) {
-      const efMin = Math.min(...efValues);
-      const efMax = Math.max(...efValues);
-      const efLevel = getEfLevel((efMin + efMax) / 2);
-      lines.push(`- EF range: ${efMin.toFixed(1)}-${efMax.toFixed(1)} (${efLevel} level)`);
-    }
-
-    if (decouplingValues.length >= 2) {
-      const workoutsWithDecoupling = workouts.filter(
-        (w) => w.decoupling !== null
-      );
-      const outlierNotes: string[] = [];
-      const trendParts = workoutsWithDecoupling.map((w, idx) => {
-        const d = w.decoupling!;
-        const outlierReason = detectDecouplingOutlier(
-          d,
-          w.variabilityIndex,
-          decouplingValues
-        );
-        if (outlierReason) {
-          const marker = `*${idx + 1}`;
-          outlierNotes.push(`${marker}: ${outlierReason}`);
-          return `${d.toFixed(0)}%${marker}`;
-        }
-        return `${d.toFixed(0)}%`;
-      });
-      const decoupTrend = trendParts.join(" -> ");
-
-      const isImproving =
-        decouplingValues[decouplingValues.length - 1] < decouplingValues[0];
-      const trendNote = isImproving ? " (improving)" : "";
-      lines.push(`- Decoupling trend: ${decoupTrend}${trendNote}`);
-
-      if (outlierNotes.length > 0) {
-        lines.push(`  (${outlierNotes.join("; ")})`);
-      }
-    } else if (decouplingValues.length === 1) {
-      lines.push(`- Decoupling: ${decouplingValues[0].toFixed(0)}%`);
-    }
-
-    const steadyWorkouts = workouts.filter(
-      (w) => w.variabilityIndex !== null && w.variabilityIndex < 1.1
-    );
-    if (steadyWorkouts.length > 0) {
-      const avgSteadyDuration = Math.round(
-        steadyWorkouts.reduce((sum, w) => sum + w.durationMinutes, 0) /
-          steadyWorkouts.length
-      );
-      const steadyWithDecoup = steadyWorkouts.filter((w) => w.decoupling !== null);
-      if (steadyWithDecoup.length > 0) {
-        const avgDecoup =
-          steadyWithDecoup.reduce((sum, w) => sum + (w.decoupling ?? 0), 0) /
-          steadyWithDecoup.length;
-        const driftNote =
-          avgDecoup < 5
-            ? "without significant drift"
-            : avgDecoup < 10
-            ? "with moderate drift"
-            : "with significant drift";
-        lines.push(`- Handles ${avgSteadyDuration}min Z2 ${driftNote}`);
-      }
-    }
-
-    lines.push("");
-  }
-
-  // --- Observed Patterns ---
-  lines.push("Observed Patterns:");
-
-  const durations = workouts.map((w) => w.durationMinutes);
-  const minDuration = Math.min(...durations);
-  const maxDuration = Math.max(...durations);
-  if (minDuration === maxDuration) {
-    lines.push(`- Typical session: ${minDuration}min`);
-  } else {
-    lines.push(`- Typical session: ${minDuration}-${maxDuration}min`);
-  }
-
-  const allCadenceP25: number[] = [];
-  const allCadenceP75: number[] = [];
-  for (const w of workouts) {
-    if (w.cadenceStats) {
-      allCadenceP25.push(w.cadenceStats.p25);
-      allCadenceP75.push(w.cadenceStats.p75);
-    }
-  }
-  if (allCadenceP25.length > 0) {
-    const cadenceLow = Math.min(...allCadenceP25);
-    const cadenceHigh = Math.max(...allCadenceP75);
-    lines.push(`- Cadence: ${cadenceLow}-${cadenceHigh} rpm`);
-  }
-
-  const negativeDecoup = decouplingValues.filter((d) => d < 0);
-  if (negativeDecoup.length > workouts.length / 2) {
-    lines.push("- Often finishes strong (negative decoupling)");
-  } else if (decouplingValues.filter((d) => d > 10).length > workouts.length / 2) {
-    lines.push("- Power tends to drop in second half");
-  }
-
-  lines.push("");
-
-  // --- Recent Load ---
-  lines.push("Recent Load:");
-
-  const twoWeeksAgo = new Date();
-  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-  const recentWorkouts = workouts.filter((w) => w.date >= twoWeeksAgo);
-  lines.push(`- ${recentWorkouts.length} session${recentWorkouts.length !== 1 ? "s" : ""} in past 2 weeks`);
-
-  const lastWorkout = workouts[workouts.length - 1];
-  lines.push(`- Last workout: ${formatRelativeTime(lastWorkout.date)}`);
-
-  return lines.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Training zones formatting
-// ---------------------------------------------------------------------------
 
 interface TrainingZonesConfig {
   hrZones: HrZones | null;
@@ -741,9 +639,6 @@ function formatHrZonesGeneric(): string {
 - Z5 VO2max: maximal efforts`;
 }
 
-/**
- * Full training zones section for the planning prompt.
- */
 function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   const lines: string[] = [];
   lines.push("## Training Zones");
@@ -765,22 +660,25 @@ function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   return lines.join("\n");
 }
 
-/**
- * Compact training zones for the coaching prompt (just boundaries, no descriptions).
- */
 function generateCompactZones(config: TrainingZonesConfig): string {
   const lines: string[] = [];
 
   if (config.estimatedFtp !== null) {
     const ftp = config.estimatedFtp;
-    lines.push(`FTP: ~${ftp}W | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`);
+    lines.push(
+      `FTP: ~${ftp}W | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`
+    );
   } else {
-    lines.push("FTP: unknown | Z1 <55% | Z2 55-75% | Z3 76-90% | Z4 91-105% | Z5 106-120% | SS 88-94%");
+    lines.push(
+      "FTP: unknown | Z1 <55% | Z2 55-75% | Z3 76-90% | Z4 91-105% | Z5 106-120% | SS 88-94%"
+    );
   }
 
   if (config.hrZones !== null) {
     const z = config.hrZones;
-    lines.push(`LTHR: ${z.lthr} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`);
+    lines.push(
+      `LTHR: ${z.lthr} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`
+    );
   }
 
   return lines.join("\n");
@@ -790,20 +688,31 @@ function generateCompactZones(config: TrainingZonesConfig): string {
 // Shared data loader
 // ---------------------------------------------------------------------------
 
-async function loadRiderData(): Promise<{
+function loadRiderData(): {
   riderProfile: string;
   zones: TrainingZonesConfig;
-}> {
-  const workouts = await loadWorkoutHistory();
-  const riderProfile = synthesizeRiderProfile(workouts);
+} {
+  const sessions = loadSessionsFromDb();
+  const riderProfile = buildRiderProfileFromDb();
 
-  const maxHr = getMaxHrFromHistory(workouts);
-  const hrZones = maxHr !== null ? calculateHrZones(maxHr) : null;
-  const ftpEstimate = estimateFtp(workouts);
+  // Compute zones from DB data, with defaults for new riders
+  const maxHr = getMaxHrFromSessions(sessions);
+  const ftpEstimate = estimateFtpFromSessions(sessions);
+
+  let hrZones: HrZones | null = null;
+  let estimatedFtp: number | null = null;
+
+  if (maxHr !== null) {
+    hrZones = calculateHrZones(maxHr);
+  }
+
+  if (ftpEstimate !== null) {
+    estimatedFtp = ftpEstimate;
+  }
 
   return {
     riderProfile,
-    zones: { hrZones, estimatedFtp: ftpEstimate },
+    zones: { hrZones, estimatedFtp },
   };
 }
 
@@ -811,8 +720,10 @@ async function loadRiderData(): Promise<{
 // Planning prompt
 // ---------------------------------------------------------------------------
 
-export async function buildPlanningPrompt(previousPlans: string): Promise<string> {
-  const { riderProfile, zones } = await loadRiderData();
+export async function buildPlanningPrompt(
+  previousPlans: string
+): Promise<string> {
+  const { riderProfile, zones } = loadRiderData();
   const trainingZonesSection = generateTrainingZonesSection(zones);
 
   return `You are a cycling workout planner. Design a single 45-minute indoor cycling workout.
@@ -905,7 +816,7 @@ Design a 45-minute workout. Vary the format from previous plans shown above. Inc
 // ---------------------------------------------------------------------------
 
 export async function buildCoachingPrompt(): Promise<string> {
-  const { zones } = await loadRiderData();
+  const { zones } = loadRiderData();
   const compactZones = generateCompactZones(zones);
 
   return `You are clardio, an AI cycling coach. You see the rider's metrics every 10 seconds and react.

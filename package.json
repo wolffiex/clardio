@@ -20,7 +20,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "latest",
-    "fit-file-parser": "^2.2.1"
+    "@anthropic-ai/sdk": "latest"
   }
 }
