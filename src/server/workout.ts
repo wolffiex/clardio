@@ -9,8 +9,10 @@ import {
   type Phase,
   type WorkoutPlan,
   type CoachResponse,
-  buildPlanningPrompt,
-  buildCoachingPrompt,
+  buildPlanningSystemPrompt,
+  buildPlanningUserPrompt,
+  buildCoachingSystemPrompt,
+  getZonesText,
 } from "./coach-prompt";
 import { planWorkout, sendCoachMessage } from "./coach";
 import { savePlan, getRecentPlans, completePlan, saveSample } from "./db";
@@ -71,7 +73,7 @@ export async function startWorkout(): Promise<void> {
   currentPlanId = null;
 
   try {
-    // 1. Build planning prompt with recent plans from SQLite
+    // 1. Build planning prompts (static system + dynamic user)
     const recentPlans = getRecentPlans(5);
     const previousPlansText =
       recentPlans.length === 0
@@ -86,16 +88,20 @@ export async function startWorkout(): Promise<void> {
             })
             .join("\n");
 
-    const planningPrompt = await buildPlanningPrompt(previousPlansText);
+    const planningSystemPrompt = buildPlanningSystemPrompt();
+    const planningUserPrompt = buildPlanningUserPrompt(previousPlansText);
 
     // 2. Call Opus to generate the plan
     console.log("--- Planning System Prompt ---");
-    console.log(planningPrompt);
+    console.log(planningSystemPrompt);
     console.log("--- End Planning System Prompt ---");
+    console.log("--- Planning User Prompt ---");
+    console.log(planningUserPrompt);
+    console.log("--- End Planning User Prompt ---");
 
     log("Generating workout plan...");
     const planStart = Date.now();
-    currentPlan = await planWorkout(planningPrompt, "Design today's workout.");
+    currentPlan = await planWorkout(planningSystemPrompt, planningUserPrompt);
     console.log(`Plan generated in ${Date.now() - planStart}ms`);
     log(`Plan: ${currentPlan.summary}`);
     log(
@@ -108,8 +114,8 @@ export async function startWorkout(): Promise<void> {
     // 3. Save plan to SQLite
     currentPlanId = savePlan(JSON.stringify(currentPlan.phases));
 
-    // 4. Build coaching prompt (done once, reused every tick)
-    coachingPrompt = await buildCoachingPrompt();
+    // 4. Build coaching system prompt (done once, reused every tick — static)
+    coachingPrompt = buildCoachingSystemPrompt();
 
     // 5. Send initial coach message
     const initialMessage = buildUserMessage(true);
@@ -277,6 +283,11 @@ function buildUserMessage(isStart: boolean): string {
       );
       accumulated += phase.duration_minutes;
     }
+
+    // Zones (dynamic, computed from DB)
+    sections.push("");
+    sections.push("## Zones");
+    sections.push(getZonesText());
 
     sections.push("");
     sections.push("## Current Phase");

@@ -1,4 +1,4 @@
-import { buildPlanningPrompt } from "../src/server/coach-prompt";
+import { buildPlanningSystemPrompt, buildPlanningUserPrompt } from "../src/server/coach-prompt";
 import { planWorkout } from "../src/server/coach";
 import { getRecentPlans } from "../src/server/db";
 
@@ -16,10 +16,11 @@ async function main() {
           })
           .join("\n");
 
-  const prompt = await buildPlanningPrompt(previousPlansText);
+  const systemPrompt = buildPlanningSystemPrompt();
+  const userPrompt = buildPlanningUserPrompt(previousPlansText);
 
   console.log("Calling Opus 4.6 to generate workout plan...\n");
-  const plan = await planWorkout(prompt, "Design today's workout.");
+  const plan = await planWorkout(systemPrompt, userPrompt);
 
   console.log(`Summary: ${plan.summary}\n`);
   console.log("Phases:");

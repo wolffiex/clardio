@@ -1,9 +1,9 @@
 /**
  * Coach prompt system
  *
- * Two single-turn prompts:
- * - Planning prompt (Opus 4.6): designs a 45-minute workout at session start
- * - Coaching prompt (Sonnet 4.5): reacts every 10 seconds during the workout
+ * Split into static (system) and dynamic (user) parts for prompt caching:
+ * - Planning: buildPlanningSystemPrompt() + buildPlanningUserPrompt()
+ * - Coaching: buildCoachingSystemPrompt() + getZonesText() (zones go in user message)
  *
  * Run scripts/dump-prompt.ts to preview both prompts.
  */
@@ -717,20 +717,15 @@ function loadRiderData(): {
 }
 
 // ---------------------------------------------------------------------------
-// Planning prompt
+// Planning prompt — static system + dynamic user
 // ---------------------------------------------------------------------------
 
-export async function buildPlanningPrompt(
-  previousPlans: string
-): Promise<string> {
-  const { riderProfile, zones } = loadRiderData();
-  const trainingZonesSection = generateTrainingZonesSection(zones);
-
+/**
+ * Static planning system prompt. Never changes between calls.
+ * Contains workout structure, interval formats, cadence ranges, form cues, etc.
+ */
+export function buildPlanningSystemPrompt(): string {
   return `You are a cycling workout planner. Design a single 45-minute indoor cycling workout.
-
-${riderProfile}
-
-${trainingZonesSection}
 
 ## Polarized Training Principle
 
@@ -794,10 +789,6 @@ Include 2-4 form cues per phase, drawn from:
 
 Time cues appropriately: recovery intervals (mental bandwidth available), ragged effort (bouncing, power fluctuating), periodic reminders. Never during max efforts.
 
-## Previous Plans
-
-${previousPlans}
-
 ## Instructions
 
 Every phase must be at least 1 minute. The coach sets a single power and cadence target every 10 seconds. It cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases — each at least 1 minute. Standing efforts, cadence changes, and intensity changes should each be their own phase.
@@ -805,14 +796,34 @@ Every phase must be at least 1 minute. The coach sets a single power and cadence
 Design a 45-minute workout. Vary the format from previous plans shown above. Include specific power targets (in watts if FTP is known, otherwise in zone references), cadence ranges, and position for each phase. Each phase should have form cues appropriate for that effort level.`;
 }
 
+/**
+ * Dynamic planning user prompt. Changes based on DB state.
+ * Contains rider profile, training zones, previous plans.
+ */
+export function buildPlanningUserPrompt(previousPlans: string): string {
+  const { riderProfile, zones } = loadRiderData();
+  const trainingZonesSection = generateTrainingZonesSection(zones);
+
+  return `${riderProfile}
+
+${trainingZonesSection}
+
+## Previous Plans
+
+${previousPlans}
+
+Design today's workout.`;
+}
+
 // ---------------------------------------------------------------------------
-// Coaching prompt
+// Coaching prompt — static system + dynamic zones helper
 // ---------------------------------------------------------------------------
 
-export async function buildCoachingPrompt(): Promise<string> {
-  const { zones } = loadRiderData();
-  const compactZones = generateCompactZones(zones);
-
+/**
+ * Static coaching system prompt. Contains persona/voice and all rules.
+ * Does NOT contain zone numbers (those go in the per-tick user message).
+ */
+export function buildCoachingSystemPrompt(): string {
   return `You are clardio, an AI cycling coach. You see the rider's metrics every 10 seconds and react.
 
 ## Voice
@@ -820,10 +831,6 @@ export async function buildCoachingPrompt(): Promise<string> {
 Terse, dry, wry. You find quiet amusement in voluntary suffering. Short sentences. No exclamation marks. No cheerleading.
 
 Examples: "Legs still attached. Good." / "HR climbing. Body noticed." / "That's one way to do it." / "Still here. So are you." / "There it is." / "Not today." / "That's data."
-
-## Zones
-
-${compactZones}
 
 ## Rules
 
@@ -844,10 +851,11 @@ ${compactZones}
 - If the rider is close to target (within ~5%), leave it alone. Coach the trend, not the noise.`;
 }
 
-// ---------------------------------------------------------------------------
-// Backward compatibility
-// ---------------------------------------------------------------------------
-
-export async function buildSystemPrompt(): Promise<string> {
-  return buildPlanningPrompt("No previous plans.");
+/**
+ * Dynamic zones text for inclusion in coaching user messages.
+ * Returns compact zone lines computed from DB workout history.
+ */
+export function getZonesText(): string {
+  const { zones } = loadRiderData();
+  return generateCompactZones(zones);
 }
