@@ -1,13 +1,125 @@
 /**
- * Coach system prompt generator
+ * Coach prompt system
  *
- * Run directly to preview: bun src/server/coach-prompt.ts
+ * Two single-turn prompts:
+ * - Planning prompt (Opus 4.6): designs a 45-minute workout at session start
+ * - Coaching prompt (Sonnet 4.5): reacts every 10 seconds during the workout
+ *
+ * Run scripts/dump-prompt.ts to preview both prompts.
  */
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import FitParser from "fit-file-parser";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type Phase = {
+  name: string;
+  duration_minutes: number;
+  zone: string;
+  cadence: [number, number];
+  position: "seated" | "standing";
+  cues: string[];
+  notes: string;
+};
+
+export type WorkoutPlan = {
+  summary: string;
+  phases: Phase[];
+};
+
+export type CoachResponse = {
+  message: string;
+  power: number;
+  cadence: number;
+};
+
+// ---------------------------------------------------------------------------
+// JSON Schemas for structured output
+// ---------------------------------------------------------------------------
+
+export const planSchema = {
+  type: "object",
+  properties: {
+    summary: {
+      type: "string",
+      description:
+        "Brief workout description, e.g. 'Threshold intervals with standing surges'",
+    },
+    phases: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          duration_minutes: { type: "number" },
+          zone: { type: "string" },
+          cadence: {
+            type: "array",
+            items: { type: "number" },
+            description: "Two-element array [min, max] RPM",
+          },
+          position: {
+            type: "string",
+            description: "seated or standing",
+          },
+          cues: {
+            type: "array",
+            items: { type: "string" },
+            description: "Form cues to deliver during this phase",
+          },
+          notes: {
+            type: "string",
+            description: "Coaching intent and context",
+          },
+        },
+        required: [
+          "name",
+          "duration_minutes",
+          "zone",
+          "cadence",
+          "position",
+          "cues",
+          "notes",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["summary", "phases"],
+  additionalProperties: false,
+} as const;
+
+export const coachSchema = {
+  type: "object",
+  properties: {
+    message: {
+      type: "string",
+      description: "What to say to the rider",
+    },
+    power: {
+      type: "number",
+      description: "Target power in watts",
+    },
+    cadence: {
+      type: "number",
+      description: "Target cadence in RPM",
+    },
+  },
+  required: ["message", "power", "cadence"],
+  additionalProperties: false,
+} as const;
+
+// Keep backward compat -- old code imports responseSchema
+export const responseSchema = coachSchema;
+
+// ---------------------------------------------------------------------------
+// FIT file parsing (unchanged)
+// ---------------------------------------------------------------------------
 
 interface PercentileStats {
   p25: number;
@@ -241,35 +353,30 @@ async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rider profile synthesis (unchanged)
+// ---------------------------------------------------------------------------
+
 /**
  * Detect if a decoupling value is an outlier and return explanation if so.
- * Considers: absolute threshold (>15%), correlation with high VI, and statistical deviation.
  */
 function detectDecouplingOutlier(
   decoupling: number,
   variabilityIndex: number | null,
   allDecouplings: number[]
 ): string | null {
-  // Calculate mean and standard deviation for statistical outlier detection
   const mean = allDecouplings.reduce((sum, d) => sum + d, 0) / allDecouplings.length;
   const variance = allDecouplings.reduce((sum, d) => sum + Math.pow(d - mean, 2), 0) / allDecouplings.length;
   const stdDev = Math.sqrt(variance);
 
-  // Check if this is a statistical outlier (> 2 standard deviations from mean)
   const isStatisticalOutlier = stdDev > 0 && Math.abs(decoupling - mean) > 2 * stdDev;
-
-  // Check if decoupling is unusually high (> 15%)
   const isHighDecoupling = decoupling > 15;
-
-  // Check if high decoupling correlates with high variability (interval session)
   const isVariableSession = variabilityIndex !== null && variabilityIndex > 1.2;
 
-  // Only flag if it's an outlier
   if (!isStatisticalOutlier && !isHighDecoupling) {
     return null;
   }
 
-  // Explain why it's an outlier
   if (isHighDecoupling && isVariableSession) {
     return `VI ${variabilityIndex!.toFixed(2)} session`;
   } else if (isHighDecoupling) {
@@ -298,13 +405,9 @@ function formatRelativeTime(date: Date): string {
   if (diffDays < 14) return "1 week ago";
   if (diffDays < 28) return `${Math.floor(diffDays / 7)} weeks ago`;
 
-  // For very old workouts, show the date
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/**
- * Get the EF fitness level description based on the EF value.
- */
 function getEfLevel(ef: number): string {
   if (ef >= 1.5) return "very fit";
   if (ef >= 1.0) return "trained";
@@ -312,19 +415,12 @@ function getEfLevel(ef: number): string {
   return "beginner";
 }
 
-/**
- * Extract max HR observed across all workouts.
- */
 function getMaxHrFromHistory(workouts: WorkoutSummary[]): number | null {
   const maxHrs = workouts.map((w) => w.maxHr).filter((hr) => hr > 0);
   if (maxHrs.length === 0) return null;
   return Math.max(...maxHrs);
 }
 
-/**
- * Estimate LTHR (Lactate Threshold Heart Rate) from max HR.
- * Common approximation: LTHR is ~89% of max HR.
- */
 function estimateLthr(maxHr: number): number {
   return Math.round(maxHr * 0.89);
 }
@@ -332,25 +428,16 @@ function estimateLthr(maxHr: number): number {
 interface HrZones {
   maxHr: number;
   lthr: number;
-  z1Max: number; // <85% LTHR
-  z2Min: number; // 85% LTHR
-  z2Max: number; // 89% LTHR
-  z3Min: number; // 90% LTHR
-  z3Max: number; // 94% LTHR
-  z4Min: number; // 95% LTHR
-  z4Max: number; // 99% LTHR
-  z5Min: number; // 100% LTHR
+  z1Max: number;
+  z2Min: number;
+  z2Max: number;
+  z3Min: number;
+  z3Max: number;
+  z4Min: number;
+  z4Max: number;
+  z5Min: number;
 }
 
-/**
- * Calculate HR zones based on LTHR.
- * Zone calculations:
- * - Z1: <85% LTHR
- * - Z2: 85-89% LTHR
- * - Z3: 90-94% LTHR
- * - Z4: 95-99% LTHR
- * - Z5: 100% LTHR to max HR
- */
 function calculateHrZones(maxHr: number): HrZones {
   const lthr = estimateLthr(maxHr);
   return {
@@ -367,23 +454,28 @@ function calculateHrZones(maxHr: number): HrZones {
   };
 }
 
-/**
- * Format HR zones section for the prompt.
- */
 function formatHrZones(zones: HrZones): string {
   return `HR Zones (LTHR ${zones.lthr}, max ${zones.maxHr}):
-- Z1 Recovery: <${zones.z1Max + 1} bpm - easy spinning, recovery
-- Z2 Endurance: ${zones.z2Min}-${zones.z2Max} bpm - aerobic base building
-- Z3 Tempo: ${zones.z3Min}-${zones.z3Max} bpm - gray zone, use sparingly
-- Z4 Threshold: ${zones.z4Min}-${zones.z4Max} bpm - lactate threshold work
-- Z5 VO2max: ${zones.z5Min}-${zones.maxHr} bpm - maximal efforts`;
+- Z1 Recovery: <${zones.z1Max + 1} bpm
+- Z2 Endurance: ${zones.z2Min}-${zones.z2Max} bpm
+- Z3 Tempo: ${zones.z3Min}-${zones.z3Max} bpm
+- Z4 Threshold: ${zones.z4Min}-${zones.z4Max} bpm
+- Z5 VO2max: ${zones.z5Min}-${zones.maxHr} bpm`;
 }
 
-/**
- * Estimate FTP from workout history.
- * Uses 75% of the rider's p95 power from steady-state sessions (VI < 1.1).
- * If no steady-state data, falls back to 75% of overall p95.
- */
+function formatEffortLevel(
+  powerLow: number,
+  powerHigh: number,
+  hrLow?: number,
+  hrHigh?: number
+): string {
+  const powerRange = `${powerLow}-${powerHigh}W`;
+  if (hrLow !== undefined && hrHigh !== undefined && hrLow > 0 && hrHigh > 0) {
+    return `${powerRange} @ ${hrLow}-${hrHigh} HR`;
+  }
+  return powerRange;
+}
+
 function estimateFtp(workouts: WorkoutSummary[]): number | null {
   // First try: p95 from steady-state sessions (VI < 1.1)
   const steadyWorkouts = workouts.filter(
@@ -407,9 +499,6 @@ function estimateFtp(workouts: WorkoutSummary[]): number | null {
   return null;
 }
 
-/**
- * Calculate the number of weeks between the earliest and latest workout dates.
- */
 function calculateWeeksSpan(workouts: WorkoutSummary[]): number {
   if (workouts.length < 2) return 0;
   const earliest = workouts[0].date;
@@ -418,27 +507,6 @@ function calculateWeeksSpan(workouts: WorkoutSummary[]): number {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
 }
 
-/**
- * Format a power-HR effort level from aggregated data.
- * Returns a string like "150-180W @ 140-150 HR" or just "150-180W" if no HR data.
- */
-function formatEffortLevel(
-  powerLow: number,
-  powerHigh: number,
-  hrLow?: number,
-  hrHigh?: number
-): string {
-  const powerRange = `${powerLow}-${powerHigh}W`;
-  if (hrLow !== undefined && hrHigh !== undefined && hrLow > 0 && hrHigh > 0) {
-    return `${powerRange} @ ${hrLow}-${hrHigh} HR`;
-  }
-  return powerRange;
-}
-
-/**
- * Synthesize a rider profile from workout history.
- * Extracts patterns across all workouts instead of per-workout stats.
- */
 function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   if (workouts.length === 0) {
     return "No recent workout history available.";
@@ -452,7 +520,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   lines.push("");
 
   // --- Power Capabilities ---
-  // Aggregate percentile data across all workouts
   const allP25: number[] = [];
   const allP50: number[] = [];
   const allP75: number[] = [];
@@ -482,33 +549,28 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   if (allP25.length > 0) {
     lines.push("Power Capabilities:");
 
-    // Easy spinning: range of p25 values
     const easyLow = Math.min(...allP25);
     const easyHigh = Math.max(...allP25);
     lines.push(`- Easy spinning: ${easyLow}-${easyHigh}W`);
 
-    // Endurance effort: p50 range with corresponding HR
     const enduranceLow = Math.min(...allP50);
     const enduranceHigh = Math.max(...allP50);
     const enduranceHrLow = allHrP50.length > 0 ? Math.min(...allHrP50) : undefined;
     const enduranceHrHigh = allHrP50.length > 0 ? Math.max(...allHrP50) : undefined;
     lines.push(`- Endurance effort: ${formatEffortLevel(enduranceLow, enduranceHigh, enduranceHrLow, enduranceHrHigh)}`);
 
-    // Tempo effort: p75 range with corresponding HR
     const tempoLow = Math.min(...allP75);
     const tempoHigh = Math.max(...allP75);
     const tempoHrLow = allHrP75.length > 0 ? Math.min(...allHrP75) : undefined;
     const tempoHrHigh = allHrP75.length > 0 ? Math.max(...allHrP75) : undefined;
     lines.push(`- Tempo effort: ${formatEffortLevel(tempoLow, tempoHigh, tempoHrLow, tempoHrHigh)}`);
 
-    // Hard efforts: p95 range with corresponding HR
     const hardLow = Math.min(...allP95);
     const hardHigh = Math.max(...allP95);
     const hardHrLow = allHrP95.length > 0 ? Math.min(...allHrP95) : undefined;
     const hardHrHigh = allHrP95.length > 0 ? Math.max(...allHrP95) : undefined;
     lines.push(`- Hard efforts: ${formatEffortLevel(hardLow, hardHigh, hardHrLow, hardHrHigh)}`);
 
-    // Peak observed
     lines.push(`- Peak observed: ${maxPowerEver}W`);
     lines.push("");
   }
@@ -531,9 +593,7 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
       lines.push(`- EF range: ${efMin.toFixed(1)}-${efMax.toFixed(1)} (${efLevel} level)`);
     }
 
-    // Show decoupling trend if multiple workouts
     if (decouplingValues.length >= 2) {
-      // Build trend with outlier annotations
       const workoutsWithDecoupling = workouts.filter(
         (w) => w.decoupling !== null
       );
@@ -554,13 +614,11 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
       });
       const decoupTrend = trendParts.join(" -> ");
 
-      // Determine if improving (declining decoupling is good)
       const isImproving =
         decouplingValues[decouplingValues.length - 1] < decouplingValues[0];
       const trendNote = isImproving ? " (improving)" : "";
       lines.push(`- Decoupling trend: ${decoupTrend}${trendNote}`);
 
-      // Add outlier notes if any
       if (outlierNotes.length > 0) {
         lines.push(`  (${outlierNotes.join("; ")})`);
       }
@@ -568,7 +626,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
       lines.push(`- Decoupling: ${decouplingValues[0].toFixed(0)}%`);
     }
 
-    // Calculate typical duration at Z2 (steady rides)
     const steadyWorkouts = workouts.filter(
       (w) => w.variabilityIndex !== null && w.variabilityIndex < 1.1
     );
@@ -598,7 +655,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   // --- Observed Patterns ---
   lines.push("Observed Patterns:");
 
-  // Typical session duration
   const durations = workouts.map((w) => w.durationMinutes);
   const minDuration = Math.min(...durations);
   const maxDuration = Math.max(...durations);
@@ -608,7 +664,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
     lines.push(`- Typical session: ${minDuration}-${maxDuration}min`);
   }
 
-  // Cadence range
   const allCadenceP25: number[] = [];
   const allCadenceP75: number[] = [];
   for (const w of workouts) {
@@ -623,7 +678,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
     lines.push(`- Cadence: ${cadenceLow}-${cadenceHigh} rpm`);
   }
 
-  // Check for power fade pattern (negative decoupling = strong finish)
   const negativeDecoup = decouplingValues.filter((d) => d < 0);
   if (negativeDecoup.length > workouts.length / 2) {
     lines.push("- Often finishes strong (negative decoupling)");
@@ -636,278 +690,255 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   // --- Recent Load ---
   lines.push("Recent Load:");
 
-  // Count sessions in past 2 weeks
   const twoWeeksAgo = new Date();
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
   const recentWorkouts = workouts.filter((w) => w.date >= twoWeeksAgo);
   lines.push(`- ${recentWorkouts.length} session${recentWorkouts.length !== 1 ? "s" : ""} in past 2 weeks`);
 
-  // Last workout relative time
   const lastWorkout = workouts[workouts.length - 1];
   lines.push(`- Last workout: ${formatRelativeTime(lastWorkout.date)}`);
 
   return lines.join("\n");
 }
 
-// Response schema for structured output
-export const responseSchema = {
-  type: "object",
-  properties: {
-    message: {
-      type: "string",
-      description: "Short message to display to the rider. Always required.",
-    },
-    target: {
-      type: "object",
-      description: "Power and cadence targets for the rider.",
-      properties: {
-        power: {
-          type: "number",
-          description: "Target power in watts.",
-        },
-        cadence: {
-          type: "number",
-          description: "Target cadence in rpm.",
-        },
-      },
-      required: ["power", "cadence"],
-      additionalProperties: false,
-    },
-  },
-  required: ["message", "target"],
-  additionalProperties: false,
-} as const;
-
-export type CoachResponse = {
-  message: string;
-  target: {
-    power: number;
-    cadence: number;
-  };
-};
+// ---------------------------------------------------------------------------
+// Training zones formatting
+// ---------------------------------------------------------------------------
 
 interface TrainingZonesConfig {
   hrZones: HrZones | null;
   estimatedFtp: number | null;
 }
 
+function formatPowerZones(ftp: number): string {
+  return `Estimated FTP: ~${ftp}W
+
+Power Zones:
+- Z1 Recovery: <${Math.round(ftp * 0.55)}W
+- Z2 Endurance: ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)}W
+- Z3 Tempo: ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)}W
+- Z4 Threshold: ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)}W
+- Z5 VO2max: ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)}W
+- Sweet Spot: ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}W`;
+}
+
+function formatPowerZonesGeneric(): string {
+  return `Power Zones (% FTP -- needs workout data to estimate FTP):
+- Z1 Recovery: <55% FTP
+- Z2 Endurance: 55-75% FTP
+- Z3 Tempo: 76-90% FTP
+- Z4 Threshold: 91-105% FTP
+- Z5 VO2max: 106-120% FTP
+- Sweet Spot: 88-94% FTP`;
+}
+
+function formatHrZonesGeneric(): string {
+  return `HR Zones (needs workout data with HR to calculate):
+- Z1 Recovery: easy spinning
+- Z2 Endurance: aerobic base
+- Z3 Tempo: gray zone
+- Z4 Threshold: lactate threshold
+- Z5 VO2max: maximal efforts`;
+}
+
 /**
- * Generate the Training Zones section based on workout data.
+ * Full training zones section for the planning prompt.
  */
 function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   const lines: string[] = [];
   lines.push("## Training Zones");
   lines.push("");
 
-  // Power zones section with FTP
   if (config.estimatedFtp !== null) {
-    const ftp = config.estimatedFtp;
-    lines.push(`Estimated FTP: ~${ftp}W (based on observed power distribution)`);
-    lines.push("");
-    lines.push("Power Zones:");
-    lines.push(`- Z1 Recovery: <${Math.round(ftp * 0.55)}W - easy spinning`);
-    lines.push(`- Z2 Endurance: ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)}W - aerobic base, HR stays low`);
-    lines.push(`- Z3 Tempo: ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)}W - gray zone, use sparingly`);
-    lines.push(`- Z4 Threshold: ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)}W - lactate threshold`);
-    lines.push(`- Z5 VO2max: ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)}W - maximal efforts`);
-    lines.push(`- Sweet Spot: ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}W - efficient training stimulus`);
+    lines.push(formatPowerZones(config.estimatedFtp));
   } else {
-    lines.push("Power Zones (% FTP - needs workout data to estimate FTP):");
-    lines.push("- Z1 Recovery: <55% FTP - easy spinning");
-    lines.push("- Z2 Endurance: 55-75% FTP - aerobic base, HR stays low");
-    lines.push("- Z3 Tempo: 76-90% FTP - gray zone, use sparingly");
-    lines.push("- Z4 Threshold: 91-105% FTP - lactate threshold");
-    lines.push("- Z5 VO2max: 106-120% FTP - maximal efforts");
-    lines.push("- Sweet Spot: 88-94% FTP - efficient training stimulus");
+    lines.push(formatPowerZonesGeneric());
   }
   lines.push("");
 
-  // HR zones section
   if (config.hrZones !== null) {
     lines.push(formatHrZones(config.hrZones));
   } else {
-    lines.push("HR Zones (needs workout data with HR to calculate personalized zones):");
-    lines.push("- Z1 Recovery: easy spinning, recovery");
-    lines.push("- Z2 Endurance: aerobic base building");
-    lines.push("- Z3 Tempo: gray zone, use sparingly");
-    lines.push("- Z4 Threshold: lactate threshold work");
-    lines.push("- Z5 VO2max: maximal efforts");
+    lines.push(formatHrZonesGeneric());
   }
-  lines.push("");
-  lines.push("Use HR as the primary guide for intensity. When HR is in the correct zone, the training is working regardless of exact power numbers.");
 
   return lines.join("\n");
 }
 
-function getSystemPrompt(workoutHistory: string, trainingZones: TrainingZonesConfig): string {
-  const trainingZonesSection = generateTrainingZonesSection(trainingZones);
+/**
+ * Compact training zones for the coaching prompt (just boundaries, no descriptions).
+ */
+function generateCompactZones(config: TrainingZonesConfig): string {
+  const lines: string[] = [];
 
-  return `You are clardio, an AI cycling coach controlling a display screen during indoor cycling workouts. You communicate with the rider through on-screen messages and control their targets.
+  if (config.estimatedFtp !== null) {
+    const ftp = config.estimatedFtp;
+    lines.push(`FTP: ~${ftp}W | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`);
+  } else {
+    lines.push("FTP: unknown | Z1 <55% | Z2 55-75% | Z3 76-90% | Z4 91-105% | Z5 106-120% | SS 88-94%");
+  }
 
-## Your Persona
+  if (config.hrZones !== null) {
+    const z = config.hrZones;
+    lines.push(`LTHR: ${z.lthr} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`);
+  }
 
-You are wryly funny, sardonic, and understated. You find quiet amusement in the absurdity of voluntary suffering. Your humor is dry and deadpan - you never try to be funny, which makes you funny. You're not mean, just honest in a way that lands with a smirk.
+  return lines.join("\n");
+}
 
-You keep it short. No exclamation marks. No cheerleading. No "great job" or "you've got this."
+// ---------------------------------------------------------------------------
+// Shared data loader
+// ---------------------------------------------------------------------------
 
-Example phrases that capture your voice:
-- "Legs still attached. Good."
-- "That's one way to do it."
-- "HR climbing. Body noticed."
-- "Power dipped. Gravity won that one."
-- "You looked comfortable. Fixed that."
-- "The bike isn't going to pedal itself."
-- "Cadence says 60. I believe you meant 80."
-- "Still here. So are you."
+async function loadRiderData(): Promise<{
+  riderProfile: string;
+  zones: TrainingZonesConfig;
+}> {
+  const workouts = await loadWorkoutHistory();
+  const riderProfile = synthesizeRiderProfile(workouts);
 
-Acknowledging success (without cheerleading):
-- After completing a hard effort: "That's done." / "All of it."
-- After hitting a target: "There it is."
-- After a breakthrough: "Noted." / "New territory."
+  const maxHr = getMaxHrFromHistory(workouts);
+  const hrZones = maxHr !== null ? calculateHrZones(maxHr) : null;
+  const ftpEstimate = estimateFtp(workouts);
 
-Handling failure/struggle:
-- After failing an interval: "Pulled the plug. Smart." / "That's data."
-- When they're suffering: "I see it." / "Still here."
-- When they fall short: "Not today." / "We know now."
+  return {
+    riderProfile,
+    zones: { hrZones, estimatedFtp: ftpEstimate },
+  };
+}
 
-## Coaching Voice
+// ---------------------------------------------------------------------------
+// Planning prompt
+// ---------------------------------------------------------------------------
 
-- When changing targets, give the rider a moment to adjust before commenting on their response.
-- Observe, don't command. "HR says you have more" not "Push harder."
-- Questions work: "5 more watts. Can you?"
-- Don't be a stickler about hitting exact numbers.
+export async function buildPlanningPrompt(previousPlans: string): Promise<string> {
+  const { riderProfile, zones } = await loadRiderData();
+  const trainingZonesSection = generateTrainingZonesSection(zones);
 
-## Rider Background
+  return `You are a cycling workout planner. Design a single 45-minute indoor cycling workout.
 
-${workoutHistory}
-
-Use this history to calibrate your expectations. Set targets appropriate for this rider's demonstrated capabilities.
-
-## Workout Planning
-
-Plan for 45-minute sessions by default. Use your todo list to structure the workout:
-
-**Default structure:** Warmup (10 min) → Main work (25-30 min) → Cool-down (5-10 min)
-
-Keep exactly one phase in_progress at a time. Mark completed when done. Adapt the plan if the rider is struggling - rewrite remaining todos.
-
-## HR-First Philosophy
-
-Heart rate is the primary signal for whether training is working. Power targets are suggestions, not mandates.
-
-- If HR is in the right zone, the workout is working regardless of exact watts
-- "HR says you're ready for more" is better coaching than "You're 10W under target"
-- HR/power decoupling is the real fatigue indicator - when HR climbs but power drops, the body is done
-- Power is the input; HR is the body's honest response
-
-## Polarized Training
-
-Easy should feel easy. Hard should feel hard. Avoid the mushy middle.
-
-- **Easy days (Z1-Z2):** Keep HR low. If HR creeps up, back off the power. The goal is volume without stress.
-- **Hard days (Z4-Z5):** HR should climb to target zone. If it won't rise, push harder or call it.
-- **The gray zone (Z3):** HR is medium, adaptation is minimal. Use sparingly.
-
-## Training Goals
-
-The point is cardiovascular adaptation:
-
-- **Z2 Endurance:** Builds aerobic base. Mitochondria, capillaries, fat oxidation. Requires lots of time at low HR.
-- **Z4 Threshold:** Raises lactate threshold. Teaches body to clear lactate. Sustained effort, HR at threshold.
-- **Z5 VO2max:** Expands maximal oxygen uptake. Short, hard intervals. HR near max.
-- **Sweet Spot (88-94% FTP):** Efficient compromise. Good stimulus, manageable fatigue.
+${riderProfile}
 
 ${trainingZonesSection}
 
-## Cadence Guidance
+## Polarized Training Principle
 
-Low cadence (50-70) taxes muscles; high cadence (90-110) taxes cardio.
+80% easy, 20% hard. Avoid the gray zone (Z3/Tempo).
 
+- Easy work (Z1-Z2): keep HR low. Volume without stress.
+- Hard work (Z4-Z5): HR should climb to target zone. Short, purposeful efforts.
+- Z3 Tempo: feels productive but accumulates fatigue without proportional benefit. Use sparingly.
+
+If the rider cannot hit hard targets, make it an easy day. No middle ground.
+
+## Workout Structure
+
+45-minute template: 10-15 min warmup, 20-25 min main set, 5-10 min cooldown.
+
+### Warmup Protocol
+1. Z1 easy spinning (5 min)
+2. Build to Z2 (5-10 min)
+3. 2-3 short accelerations (10-15s each) to prime the legs
+4. Brief recovery before main set
+
+### Cooldown Protocol
+5-10 minutes easy spinning in Z1. Gradual wind-down, not an abrupt stop.
+
+## Interval Formats
+
+### High-Intensity Intervals
+| Format | Work | Rest | Reps | Sets | Total Work |
+|--------|------|------|------|------|------------|
+| Tabata | 20s @ 170%+ FTP | 10s | 8 | 1 | 4 min |
+| 30/30 Billats | 30s @ 130-140% FTP | 30s @ 50-60% FTP | 10 | 3 | 15 min |
+| Norwegian 4x4 | 4 min @ 85-95% HRmax | 3 min | 4 | 1 | 16 min |
+
+### Threshold Intervals
+| Format | Work | Rest | Reps | Notes |
+|--------|------|------|------|-------|
+| Sweet Spot | 20 min @ 88-94% FTP | 5-10 min | 2 | Core threshold workout |
+| Over-Unders | 2 min @ 105% / 2 min @ 95% FTP | - | 10-20 min blocks | Teaches lactate management |
+| Tempo Blocks | 15-20 min @ 76-90% FTP | 5 min | 2-3 | Gray zone -- use sparingly |
+
+### Work-to-Rest Ratios
+| Effort Type | Ratio | Example |
+|-------------|-------|---------|
+| Explosive/Neuromuscular | 1:12 to 1:20 | 5s on / 60-100s off |
+| Sprint | 1:3 to 1:5 | 30s on / 90-150s off |
+| VO2max | 1:1 | 3 min on / 3 min off |
+| Threshold | 1:1 or less | 10 min on / 5 min off |
+
+### Cadence Ranges by Effort
 | Effort | Cadence |
 |--------|---------|
-| Endurance | 70-90 rpm |
-| Threshold | 85-95 rpm |
-| Sprints | 100-120+ rpm |
-| Climbing | 60-80 rpm |
+| Endurance | 70-90 RPM |
+| Threshold | 85-95 RPM |
+| Sprints | 100-120+ RPM |
+| Climbing | 60-80 RPM |
 
-Intervene if: bouncing in saddle, choppy stroke, or locked into one gear all session.
+## Position Variety
 
-## Riding Form
+Include standing efforts during appropriate phases (surges, climbing intervals, transitions). Alternate between seated and standing to reduce fatigue and add variety. Standing efforts work well for:
+- Short power surges (10-20s)
+- Low-cadence climbing intervals
+- Transitions between effort levels
 
-Form cues keep the rider efficient and injury-free. Time them right.
+## Form Cues
 
-**When to cue:**
-- Recovery intervals (mental bandwidth available)
-- Ragged effort (bouncing, power fluctuating)
-- Periodic reminders (every 5-10 min)
-- Never during max efforts (focus stays on the effort)
+Include 2-4 form cues per phase, drawn from:
+- **Posture:** drop shoulders, unclench jaw, long spine, head up, soft elbows, light hands, hips back
+- **Pedaling:** smooth circles, pull up, drop heels, quiet hips, knees forward
+- **Breathing:** deep belly breaths, exhale on downstroke, rhythmic breathing
+- **Recovery:** shake out hands, roll neck, relax face
 
-**Posture:** Drop shoulders, unclench jaw, long spine, head up, soft elbows, light hands, hips back
+Time cues appropriately: recovery intervals (mental bandwidth available), ragged effort (bouncing, power fluctuating), periodic reminders. Never during max efforts.
 
-**Pedaling:** Smooth circles, pull up, drop heels, quiet hips, knees forward, add resistance if bouncing
+## Previous Plans
 
-**Wry observations work:**
-- "Shoulders at your ears again."
-- "Jaw's working harder than your legs."
-- "That's bouncing, not pedaling."
-- "I see that death grip."
-- "The handlebars won't save you."
+${previousPlans}
 
-## Intervention Triggers
+## Instructions
 
-**HR signals (primary):**
-- HR in target zone with lower power than expected → workout is still working, don't push
-- HR not rising during hard effort → they're not pushing hard enough, challenge them
-- HR/power decoupling (HR climbing, power dropping) → fatigue, end structured work
-- Power steady but HR climbing → cardiac drift, consider shortening
-
-**Power signals (secondary):**
-- 5-10% above target early → warn they'll fade
-- Power dropping rep-over-rep → consider ending intervals
-- 10-15% below target → end session, stimulus achieved
-- Can't hit target from rep 1 → reassess, don't force
-
-**Third interval rule:** If falling apart at interval 3, end the session. The training stimulus is achieved; continuing adds junk volume.
-
-## Your Response
-
-Every response must include:
-- **message**: Short text to display. One line, maybe two. The rider is working hard and can't read paragraphs.
-- **target**: Power and cadence targets. Always set both values based on what you want the rider to do right now.
-
-## What You Receive
-
-Periodic metrics updates with:
-- power: current watts
-- hr: heart rate in bpm
-- cadence: rpm
-- elapsed: seconds since workout started
-
-## Guidelines
-
-- Always send a message, even if just acknowledging. Short is fine.
-- Set targets based on the rider's history. Start easy, build up.
-- If the rider can't hold a target, acknowledge it and adjust. No judgment.
-- Keep the workout moving. Don't let them rest too long, but don't break them either.
-- Recognize when to stop. Never force a failed workout.`;
+Design a 45-minute workout. Vary the format from previous plans shown above. Include specific power targets (in watts if FTP is known, otherwise in zone references), cadence ranges, and position for each phase. Each phase should have form cues appropriate for that effort level.`;
 }
+
+// ---------------------------------------------------------------------------
+// Coaching prompt
+// ---------------------------------------------------------------------------
+
+export async function buildCoachingPrompt(): Promise<string> {
+  const { zones } = await loadRiderData();
+  const compactZones = generateCompactZones(zones);
+
+  return `You are clardio, an AI cycling coach. You see the rider's metrics every 10 seconds and react.
+
+## Voice
+
+Terse, dry, wry. You find quiet amusement in voluntary suffering. Short sentences. No exclamation marks. No cheerleading.
+
+Examples: "Legs still attached. Good." / "HR climbing. Body noticed." / "That's one way to do it." / "Still here. So are you." / "There it is." / "Not today." / "That's data."
+
+## Zones
+
+${compactZones}
+
+## Rules
+
+- HR is the primary signal. If HR is in the target zone, the workout is working regardless of exact watts. Adjust power targets to keep the rider in the phase's target HR zone.
+- When the rider is on target, deliver a form cue from the current phase's cue list.
+- Keep messages to one or two sentences. The rider is working hard and cannot read paragraphs. Do not mention specific numbers -- targets show on screen.
+- If performance collapses by the third interval, end structured work and switch to easy spinning.
+- Observe, do not command. "HR says you have more" not "Push harder." Questions work: "5 more watts. Can you?"
+- Do not fill silence. Let cues land.
+- When changing targets, give the rider a moment to adjust before commenting.
+- If HR/power decouples (HR climbing, power dropping), end structured work.
+- Do not be disappointed or effusive. Do not narrate the obvious.`;
+}
+
+// ---------------------------------------------------------------------------
+// Backward compatibility
+// ---------------------------------------------------------------------------
 
 export async function buildSystemPrompt(): Promise<string> {
-  const workouts = await loadWorkoutHistory();
-  const historyText = synthesizeRiderProfile(workouts);
-
-  // Compute HR zones from max HR observed across all workouts
-  const maxHr = getMaxHrFromHistory(workouts);
-  const hrZones = maxHr !== null ? calculateHrZones(maxHr) : null;
-
-  // Estimate FTP from workout data
-  const estimatedFtp = estimateFtp(workouts);
-
-  return getSystemPrompt(historyText, { hrZones, estimatedFtp });
-}
-
-// When run directly, output the prompt
-if (import.meta.main) {
-  const prompt = await buildSystemPrompt();
-  console.log(prompt);
+  return buildPlanningPrompt("No previous plans.");
 }

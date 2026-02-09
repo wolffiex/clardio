@@ -124,9 +124,7 @@ if (import.meta.main) {
     console.log(`→ ${prompt.replace(/\n/g, " | ")}`);
     const response = await sendMetrics(prompt);
     console.log(`← "${response.message}"`);
-    if (response.target) {
-      console.log(`  target: ${response.target.power}W ${response.target.cadence}rpm`);
-    }
+    console.log(`  target: ${response.power}W ${response.cadence}rpm`);
     console.log(`  session: ${sessionId}`);
     console.log();
   }

@@ -112,8 +112,8 @@ async function onCoachTick() {
 
     // Broadcast target
     const targetEvent: TargetEvent = {
-      power: response.target.power,
-      cadence: response.target.cadence,
+      power: response.power,
+      cadence: response.cadence,
     };
     broadcast("target", targetEvent);
     log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
@@ -157,8 +157,8 @@ export async function startWorkout(): Promise<void> {
     broadcast("coach", { text: response.message } satisfies CoachEvent);
 
     const targetEvent: TargetEvent = {
-      power: response.target.power,
-      cadence: response.target.cadence,
+      power: response.power,
+      cadence: response.cadence,
     };
     broadcast("target", targetEvent);
     log(`Target: ${targetEvent.power}W ${targetEvent.cadence}rpm`);
