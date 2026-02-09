@@ -27,7 +27,6 @@ from bleak.backends.device import BLEDevice
 # BLE Service UUIDs (full 128-bit format for bleak)
 SERVICE_CYCLING_POWER = "00001818-0000-1000-8000-00805f9b34fb"
 SERVICE_HEART_RATE = "0000180d-0000-1000-8000-00805f9b34fb"
-SERVICE_CSC = "00001816-0000-1000-8000-00805f9b34fb"
 
 # BLE Characteristic UUIDs (bleak uses full UUIDs)
 CHAR_HEART_RATE = "00002a37-0000-1000-8000-00805f9b34fb"
@@ -79,7 +78,8 @@ def parse_heart_rate(data: bytes) -> int:
         return data[1]
 
 
-_power_debug_count = 0
+_prev_crank_revs: int | None = None
+_prev_crank_time: int | None = None
 
 def parse_cycling_power(data: bytes) -> tuple[int, int | None]:
     """Parse Cycling Power Measurement characteristic (0x2A63)
@@ -91,7 +91,7 @@ def parse_cycling_power(data: bytes) -> tuple[int, int | None]:
     - Bytes 2-3: Instantaneous Power (16-bit signed little-endian, watts)
     - Additional fields depend on flags
     """
-    global _power_debug_count
+    global _prev_crank_revs, _prev_crank_time
 
     if len(data) < 4:
         log(f"[PWR] Warning: data too short ({len(data)} bytes): {data.hex()}")
@@ -99,11 +99,6 @@ def parse_cycling_power(data: bytes) -> tuple[int, int | None]:
 
     flags = struct.unpack_from("<H", data, 0)[0]
     power = struct.unpack_from("<h", data, 2)[0]
-
-    # Debug: log raw bytes for first 10 readings to help diagnose issues
-    if _power_debug_count < 10:
-        log(f"[PWR] Raw: {data.hex()} flags=0x{flags:04x} power={power}W len={len(data)}")
-        _power_debug_count += 1
 
     # Parse cadence if Crank Revolution Data Present (bit 5)
     cadence = None
@@ -120,7 +115,17 @@ def parse_cycling_power(data: bytes) -> tuple[int, int | None]:
         if len(data) >= offset + 4:
             crank_revs = struct.unpack_from("<H", data, offset)[0]
             crank_time = struct.unpack_from("<H", data, offset + 2)[0]
-            log(f"[PWR] Crank data: revs={crank_revs} time={crank_time}")
+
+            if _prev_crank_revs is not None and _prev_crank_time is not None:
+                rev_delta = (crank_revs - _prev_crank_revs) % 65536
+                time_delta = (crank_time - _prev_crank_time) % 65536
+
+                if time_delta > 0:
+                    # Convert to RPM: revs / (time in 1/1024 sec) * 1024 * 60
+                    cadence = round((rev_delta / time_delta) * 1024 * 60)
+
+            _prev_crank_revs = crank_revs
+            _prev_crank_time = crank_time
 
     return (max(0, power), cadence)
 
@@ -293,7 +298,6 @@ async def scan_for_devices(
         service_names = {
             SERVICE_CYCLING_POWER: "Cycling Power",
             SERVICE_HEART_RATE: "Heart Rate",
-            SERVICE_CSC: "CSC",
         }
         needed_names = [service_names.get(s, s[-8:]) for s in needed_services]
         log(f"[BLE] Scanning for services: {', '.join(needed_names)}")
