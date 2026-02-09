@@ -39,7 +39,7 @@ let coachHistory: Array<{
   power: number;
   cadence: number;
 }> = [];
-const MAX_COACH_HISTORY = 5;
+const MAX_COACH_HISTORY = 10;
 
 // Phase transition tracking
 let lastPhaseName: string | null = null;
@@ -257,11 +257,28 @@ function buildUserMessage(isStart: boolean): string {
   const elapsedStr = formatElapsed(elapsed);
   const sections: string[] = [];
 
-  // Current phase (derived from elapsed time)
+  // Plan and current phase (derived from elapsed time)
   if (currentPlan) {
     const { currentPhase, phaseElapsed, phaseRemaining } =
       getCurrentPhase(elapsed);
 
+    // Full plan overview (compact)
+    sections.push("## Plan");
+    sections.push(currentPlan.summary);
+    let accumulated = 0;
+    for (const phase of currentPlan.phases) {
+      const marker =
+        accumulated <= elapsed / 1000 / 60 &&
+        elapsed / 1000 / 60 < accumulated + phase.duration_minutes
+          ? "->"
+          : "  ";
+      sections.push(
+        `${marker} ${phase.name}: ${phase.duration_minutes}min ${phase.zone} ${phase.position} ${phase.cadence[0]}-${phase.cadence[1]}rpm`
+      );
+      accumulated += phase.duration_minutes;
+    }
+
+    sections.push("");
     sections.push("## Current Phase");
     if (currentPhase) {
       // Detect phase transition
@@ -299,8 +316,9 @@ function buildUserMessage(isStart: boolean): string {
       if (phaseRemaining <= 30_000) {
         const nextPhase = getNextPhase(currentPhase);
         if (nextPhase) {
+          const remainingSec = Math.round(phaseRemaining / 1000);
           sections.push(
-            `\u23ED NEXT: ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence[0]}-${nextPhase.cadence[1]}rpm`
+            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence[0]}-${nextPhase.cadence[1]}rpm`
           );
         }
       }
@@ -317,23 +335,6 @@ function buildUserMessage(isStart: boolean): string {
       lastPhasePosition = currentPhase.position;
     } else {
       sections.push("Workout complete — cool down.");
-    }
-
-    // Full plan overview (compact)
-    sections.push("");
-    sections.push("## Plan");
-    sections.push(currentPlan.summary);
-    let accumulated = 0;
-    for (const phase of currentPlan.phases) {
-      const marker =
-        accumulated <= elapsed / 1000 / 60 &&
-        elapsed / 1000 / 60 < accumulated + phase.duration_minutes
-          ? "->"
-          : "  ";
-      sections.push(
-        `${marker} ${phase.name}: ${phase.duration_minutes}min ${phase.zone} ${phase.position} ${phase.cadence[0]}-${phase.cadence[1]}rpm`
-      );
-      accumulated += phase.duration_minutes;
     }
   }
 
