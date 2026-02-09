@@ -849,8 +849,6 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 ### High-Intensity Intervals
 | Format | Work | Rest | Reps | Sets | Total Work |
 |--------|------|------|------|------|------------|
-| Tabata | 20s @ 170%+ FTP | 10s | 8 | 1 | 4 min |
-| 30/30 Billats | 30s @ 130-140% FTP | 30s @ 50-60% FTP | 10 | 3 | 15 min |
 | Norwegian 4x4 | 4 min @ 85-95% HRmax | 3 min | 4 | 1 | 16 min |
 
 ### Threshold Intervals
@@ -863,8 +861,6 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 ### Work-to-Rest Ratios
 | Effort Type | Ratio | Example |
 |-------------|-------|---------|
-| Explosive/Neuromuscular | 1:12 to 1:20 | 5s on / 60-100s off |
-| Sprint | 1:3 to 1:5 | 30s on / 90-150s off |
 | VO2max | 1:1 | 3 min on / 3 min off |
 | Threshold | 1:1 or less | 10 min on / 5 min off |
 
@@ -873,7 +869,7 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 |--------|---------|
 | Endurance | 70-90 RPM |
 | Threshold | 85-95 RPM |
-| Sprints | 100-120+ RPM |
+| High-cadence drills | 95-110 RPM |
 | Climbing | 60-80 RPM |
 
 ## Position Variety
@@ -899,7 +895,7 @@ ${previousPlans}
 
 ## Instructions
 
-Every phase must be at least 45 seconds (0.75 minutes). The coach checks in every 10 seconds, so shorter phases cannot be coached effectively. If you want short efforts like 10-second sprints, combine them with their recovery into a single phase (e.g. "10s sprint + 50s recovery" as one 1-minute phase) and describe the structure in the notes field.
+Every phase must be at least 1 minute. The coach sets a single power and cadence target every 10 seconds. It cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases — each at least 1 minute. Standing efforts, cadence changes, and intensity changes should each be their own phase.
 
 Design a 45-minute workout. Vary the format from previous plans shown above. Include specific power targets (in watts if FTP is known, otherwise in zone references), cadence ranges, and position for each phase. Each phase should have form cues appropriate for that effort level.`;
 }
