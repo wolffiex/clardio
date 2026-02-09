@@ -41,6 +41,10 @@ let coachHistory: Array<{
 }> = [];
 const MAX_COACH_HISTORY = 5;
 
+// Phase transition tracking
+let lastPhaseName: string | null = null;
+let lastPhasePosition: string | null = null;
+
 // Metrics buffer
 type Sample = { power: number; hr: number; cadence: number; receivedAt: number };
 let samples: Sample[] = [];
@@ -61,6 +65,8 @@ export async function startWorkout(): Promise<void> {
   coachHistory = [];
   lastSampleTime = null;
   lastLatencyMs = null;
+  lastPhaseName = null;
+  lastPhasePosition = null;
   currentPlan = null;
   currentPlanId = null;
 
@@ -242,18 +248,57 @@ function buildUserMessage(isStart: boolean): string {
 
     sections.push("## Current Phase");
     if (currentPhase) {
-      sections.push(
-        `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
-      );
-      sections.push(
-        `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
-      );
+      // Detect phase transition
+      const isNewPhase = lastPhaseName !== null && currentPhase.name !== lastPhaseName;
+      if (isNewPhase) {
+        const positionChanged = lastPhasePosition !== null && currentPhase.position !== lastPhasePosition;
+        sections.push(
+          `\u{1F504} NEW PHASE \u2014 was "${lastPhaseName}", now entering "${currentPhase.name}"`
+        );
+        sections.push(
+          `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
+        );
+        sections.push(
+          `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
+        );
+        if (positionChanged) {
+          sections.push(
+            `Position change: YES \u2014 was ${lastPhasePosition}, now ${currentPhase.position.toUpperCase()}`
+          );
+        } else {
+          sections.push(
+            `Position change: NO (both ${currentPhase.position})`
+          );
+        }
+      } else {
+        sections.push(
+          `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
+        );
+        sections.push(
+          `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
+        );
+      }
+
+      // Upcoming phase preview when nearing end of current phase
+      if (phaseRemaining <= 30_000) {
+        const nextPhase = getNextPhase(currentPhase);
+        if (nextPhase) {
+          sections.push(
+            `\u23ED NEXT: ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence[0]}-${nextPhase.cadence[1]}rpm`
+          );
+        }
+      }
+
       if (currentPhase.cues.length > 0) {
         sections.push(`Cues: ${currentPhase.cues.join(", ")}`);
       }
       if (currentPhase.notes) {
         sections.push(`Notes: ${currentPhase.notes}`);
       }
+
+      // Update tracking state after building the message
+      lastPhaseName = currentPhase.name;
+      lastPhasePosition = currentPhase.position;
     } else {
       sections.push("Workout complete — cool down.");
     }
@@ -412,6 +457,13 @@ function getCurrentPhase(elapsedMs: number): {
   }
 
   return { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
+}
+
+function getNextPhase(currentPhase: Phase): Phase | null {
+  if (!currentPlan) return null;
+  const idx = currentPlan.phases.indexOf(currentPhase);
+  if (idx === -1 || idx >= currentPlan.phases.length - 1) return null;
+  return currentPlan.phases[idx + 1];
 }
 
 function getRecentSamples(windowMs: number): Sample[] {
