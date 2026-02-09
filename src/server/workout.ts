@@ -89,6 +89,10 @@ export async function startWorkout(): Promise<void> {
     const planningPrompt = await buildPlanningPrompt(previousPlansText);
 
     // 2. Call Opus to generate the plan
+    console.log("--- Planning System Prompt ---");
+    console.log(planningPrompt);
+    console.log("--- End Planning System Prompt ---");
+
     log("Generating workout plan...");
     const planStart = Date.now();
     currentPlan = await planWorkout(planningPrompt, "Design today's workout.");
@@ -97,6 +101,9 @@ export async function startWorkout(): Promise<void> {
     log(
       `Phases: ${currentPlan.phases.map((p) => `${p.name} (${p.duration_minutes}min ${p.zone})`).join(" -> ")}`
     );
+    console.log("--- Full Plan ---");
+    console.log(JSON.stringify(currentPlan, null, 2));
+    console.log("--- End Full Plan ---");
 
     // 3. Save plan to SQLite
     currentPlanId = savePlan(JSON.stringify(currentPlan.phases));
@@ -106,6 +113,9 @@ export async function startWorkout(): Promise<void> {
 
     // 5. Send initial coach message
     const initialMessage = buildUserMessage(true);
+    console.log("--- Coach Input ---");
+    console.log(initialMessage);
+    console.log("--- End Coach Input ---");
     const initialCallStart = Date.now();
     const response = await sendCoachMessage(coachingPrompt, initialMessage);
     lastLatencyMs = Date.now() - initialCallStart;
@@ -114,6 +124,9 @@ export async function startWorkout(): Promise<void> {
       updateCoachHistory(response);
       broadcast("coach", { text: response.message });
       broadcast("target", { power: response.power, cadence: response.cadence });
+      log(
+        `Coach: "${response.message}" | ${response.power}W ${response.cadence}rpm`
+      );
     }
 
     // 6. Start the 10-second coaching loop
@@ -210,6 +223,9 @@ async function onCoachTick(): Promise<void> {
   if (!workoutActive || !currentPlan || samples.length === 0) return;
 
   const userMessage = buildUserMessage(false);
+  console.log("--- Coach Input ---");
+  console.log(userMessage);
+  console.log("--- End Coach Input ---");
 
   try {
     const callStart = Date.now();
