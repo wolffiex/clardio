@@ -371,23 +371,34 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Metrics summary (full workout)
+  // Metrics summary (current phase averages + overall max HR)
   if (samples.length > 0) {
-    const avgPower = Math.round(
-      samples.reduce((s, x) => s + x.power, 0) / samples.length
-    );
-    const avgHr = Math.round(
-      samples.reduce((s, x) => s + x.hr, 0) / samples.length
-    );
-    const avgCadence = Math.round(
-      samples.reduce((s, x) => s + x.cadence, 0) / samples.length
-    );
     const maxHr = Math.max(...samples.map((s) => s.hr));
+    const { phaseElapsed } = getCurrentPhase(elapsed);
+    const phaseSamples = phaseElapsed > 0
+      ? samples.filter((s) => s.receivedAt >= Date.now() - phaseElapsed)
+      : [];
+
     sections.push("");
     sections.push("## Workout Summary");
-    sections.push(
-      `Avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
-    );
+    if (phaseSamples.length > 0) {
+      const avgPower = Math.round(
+        phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
+      );
+      const avgHr = Math.round(
+        phaseSamples.reduce((s, x) => s + x.hr, 0) / phaseSamples.length
+      );
+      const avgCadence = Math.round(
+        phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
+      );
+      sections.push(
+        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+      );
+    } else {
+      sections.push(
+        `Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+      );
+    }
 
     // Timing info so the coach knows data staleness
     const lastResponseStr = lastLatencyMs !== null
