@@ -53,7 +53,7 @@ if (arg === "coaching" || arg === "both") {
 
   const sampleUserMessage = `## Plan
 Sweet spot with standing surges
--> Easy Spin: 5min Z1 Recovery seated 70-80rpm
+   Easy Spin: 5min Z1 Recovery seated 70-80rpm
    Build to Endurance: 5min Z2 Endurance seated 75-85rpm
    Opener Surge: 1min Z4 Threshold standing 85-95rpm
    Recovery: 2min Z1 Recovery seated 70-80rpm

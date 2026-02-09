@@ -775,8 +775,8 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 ## Position Variety
 
 Include standing efforts during appropriate phases (surges, climbing intervals, transitions). Alternate between seated and standing to reduce fatigue and add variety. Standing efforts work well for:
-- Short power surges (10-20s)
-- Low-cadence climbing intervals
+- Power surges and climbing intervals (1-2 minutes)
+- Low-cadence strength efforts
 - Transitions between effort levels
 
 ## Form Cues
