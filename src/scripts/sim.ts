@@ -1,7 +1,15 @@
 #!/usr/bin/env bun
 /**
  * Sensor simulator - sends fake metrics to the local server
- * Tab or empty input keeps the current value
+ * Auto-sends every second. Type to update values between sends.
+ *
+ * Input formats:
+ *   hr 130       - set heart rate
+ *   rpm 90       - set cadence
+ *   w 200        - set power
+ *   130 90 200   - set all three (hr cadence power)
+ *   q            - quit
+ *   (empty)      - do nothing, auto-send continues
  */
 
 import * as readline from "readline";
@@ -16,12 +24,6 @@ const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
-
-function prompt(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(question, resolve);
-  });
-}
 
 async function sendMetrics() {
   const payload = { hr, cadence, power };
@@ -43,29 +45,66 @@ async function sendMetrics() {
   }
 }
 
-async function loop() {
-  console.log("\nSensor Simulator (empty/tab = keep value, q = quit)\n");
+function parseInput(line: string): boolean {
+  const trimmed = line.trim().toLowerCase();
+  if (trimmed === "q") return false;
+  if (!trimmed) return true;
 
-  while (true) {
-    console.log("");
-
-    const hrInput = await prompt(`HR [${hr}]: `);
-    if (hrInput.toLowerCase() === "q") break;
-    if (hrInput.trim()) hr = parseInt(hrInput, 10) || hr;
-
-    const cadenceInput = await prompt(`RPM [${cadence}]: `);
-    if (cadenceInput.toLowerCase() === "q") break;
-    if (cadenceInput.trim()) cadence = parseInt(cadenceInput, 10) || cadence;
-
-    const powerInput = await prompt(`W [${power}]: `);
-    if (powerInput.toLowerCase() === "q") break;
-    if (powerInput.trim()) power = parseInt(powerInput, 10) || power;
-
-    await sendMetrics();
+  // Named value: "hr 130", "rpm 90", "w 200"
+  const named = trimmed.match(/^(hr|rpm|w)\s+(\d+)$/);
+  if (named) {
+    const val = parseInt(named[2], 10);
+    switch (named[1]) {
+      case "hr": hr = val; break;
+      case "rpm": cadence = val; break;
+      case "w": power = val; break;
+    }
+    console.log(`  set ${named[1]}=${val}`);
+    return true;
   }
 
-  rl.close();
-  console.log("\nDone.");
+  // Three numbers: "130 90 200" (hr cadence power)
+  const triple = trimmed.match(/^(\d+)\s+(\d+)\s+(\d+)$/);
+  if (triple) {
+    hr = parseInt(triple[1], 10);
+    cadence = parseInt(triple[2], 10);
+    power = parseInt(triple[3], 10);
+    console.log(`  set hr=${hr} rpm=${cadence} w=${power}`);
+    return true;
+  }
+
+  console.log(`  unknown input: ${trimmed}`);
+  return true;
 }
 
-loop();
+function showPrompt() {
+  rl.prompt();
+}
+
+console.log("\nSensor Simulator (auto-sends every 1s)");
+console.log("Commands: hr <N> | rpm <N> | w <N> | <hr> <rpm> <w> | q\n");
+
+rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
+showPrompt();
+
+// Auto-send on a 1-second interval
+const interval = setInterval(() => {
+  sendMetrics();
+  rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
+}, 1000);
+
+rl.on("line", (line: string) => {
+  const continueRunning = parseInput(line);
+  if (!continueRunning) {
+    clearInterval(interval);
+    rl.close();
+    console.log("\nDone.");
+    return;
+  }
+  rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
+  showPrompt();
+});
+
+rl.on("close", () => {
+  clearInterval(interval);
+});
