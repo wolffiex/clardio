@@ -1,131 +1,70 @@
 /**
- * Coach - Claude Agent SDK integration
+ * Coach - Anthropic SDK integration (stateless, single-turn)
  *
- * Run directly to test: bun src/server/coach.ts
+ * Two functions:
+ * - planWorkout: Opus 4.6 generates a structured workout plan
+ * - sendCoachMessage: Sonnet 4.5 reacts to metrics every 10 seconds
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import {
-  buildSystemPrompt,
-  responseSchema,
+  type WorkoutPlan,
   type CoachResponse,
+  planSchema,
+  coachSchema,
 } from "./coach-prompt";
-import { log } from "./log";
 
-let systemPrompt: string | null = null;
-let sessionId: string | null = null;
+const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
-export async function initCoach(): Promise<string> {
-  systemPrompt = await buildSystemPrompt();
-  sessionId = null;
-  log("Coach system prompt:");
-  console.log(systemPrompt);
-  console.log("---");
-  return systemPrompt;
-}
-
-async function sendMessage(userMessage: string): Promise<CoachResponse> {
-  if (!systemPrompt) {
-    await initCoach();
-  }
-
-  log("Coach prompt:");
-  console.log(userMessage);
-  console.log();
-
-  const options: Parameters<typeof query>[0]["options"] = {
-    systemPrompt: systemPrompt!,
-    model: "claude-sonnet-4-5-20250929",
-    maxTurns: 1,
-    outputFormat: {
-      type: "json_schema",
-      schema: responseSchema,
+export async function planWorkout(
+  systemPrompt: string,
+  userMessage: string
+): Promise<WorkoutPlan> {
+  const response = await client.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: planSchema,
+      },
     },
-    tools: ["TodoWrite", "TodoRead"],
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
-  };
+  });
 
-  // Resume session if we have one
-  if (sessionId) {
-    options.resume = sessionId;
-  }
-
-  const result = query({ prompt: userMessage, options });
-
-  let response: CoachResponse | null = null;
-
-  for await (const message of result) {
-    // Capture session ID from init message
-    if (message.type === "system" && message.subtype === "init") {
-      sessionId = message.session_id;
-    }
-
-    // Extract structured output from StructuredOutput tool use
-    if (message.type === "assistant") {
-      const content = message.message?.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === "tool_use" && block.name === "StructuredOutput") {
-            response = block.input as CoachResponse;
-          }
-          // Log TodoWrite tool calls for debugging
-          if (block.type === "tool_use" && block.name === "TodoWrite") {
-            const todos = (block.input as { todos: Array<{ content: string; status: string }> }).todos;
-            log("Workout plan:");
-            for (const todo of todos) {
-              const icon = todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "●" : "○";
-              console.log(`  ${icon} ${todo.content.padEnd(30)} ${todo.status}`);
-            }
-          }
-        }
-      }
-    }
-
-    // Also check result for structured_output (in case of success)
-    if (message.type === "result" && (message as any).structured_output) {
-      response = (message as any).structured_output as CoachResponse;
-    }
-  }
-
-  if (!response) {
-    throw new Error("No response from coach");
-  }
-
-  return response;
+  const textBlock = response.content.find(
+    (b): b is Anthropic.TextBlock => b.type === "text"
+  );
+  if (!textBlock) throw new Error("No text response from planner");
+  return JSON.parse(textBlock.text) as WorkoutPlan;
 }
 
-export async function sendStart(): Promise<CoachResponse> {
-  return sendMessage("Workout starting.");
-}
+export async function sendCoachMessage(
+  systemPrompt: string,
+  userMessage: string
+): Promise<CoachResponse | null> {
+  try {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: coachSchema,
+        },
+      },
+    });
 
-export async function sendMetrics(prompt: string): Promise<CoachResponse> {
-  return sendMessage(prompt);
-}
-
-export function resetCoach(): void {
-  sessionId = null;
-}
-
-// Test harness
-if (import.meta.main) {
-  await initCoach();
-  console.log("Coach initialized\n");
-
-  // Simulate a few metrics prompts
-  const testPrompts = [
-    "Workout starting.",
-    "20s ago: hr:72 cadence:0 power:0\n15s ago: hr:85 cadence:50 power:60\nheart rate climbing quickly",
-    "20s ago: hr:115 cadence:78 power:110\n5s ago: hr:120 cadence:80 power:115\nheart rate climbing",
-    "20s ago: hr:145 cadence:80 power:120\n15s ago: hr:146 cadence:78 power:115\n10s ago: hr:147 cadence:75 power:105\n5s ago: hr:148 cadence:72 power:95\nheart rate steady",
-  ];
-
-  for (const prompt of testPrompts) {
-    console.log(`→ ${prompt.replace(/\n/g, " | ")}`);
-    const response = await sendMetrics(prompt);
-    console.log(`← "${response.message}"`);
-    console.log(`  target: ${response.power}W ${response.cadence}rpm`);
-    console.log(`  session: ${sessionId}`);
-    console.log();
+    const textBlock = response.content.find(
+      (b): b is Anthropic.TextBlock => b.type === "text"
+    );
+    if (!textBlock) return null;
+    return JSON.parse(textBlock.text) as CoachResponse;
+  } catch (err) {
+    console.error("Coach error:", err);
+    return null;
   }
 }
