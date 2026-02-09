@@ -23,22 +23,6 @@ export interface TargetEvent {
   cadence: number;
 }
 
-// workout_end event - workout completion
-export interface WorkoutEndEvent {
-  summary: string;
-  stats: {
-    duration: number; // seconds
-    work_kj: number; // kilojoules
-    avg_power: number; // watts
-    avg_hr: number; // bpm
-  };
-}
-
 // Union type for all SSE events
-export type SSEEventType = "coach" | "metrics" | "target" | "connected" | "workout_end";
-
-export interface SSEMessage<T = unknown> {
-  event: SSEEventType;
-  data: T;
-}
+export type SSEEventType = "coach" | "metrics" | "target" | "connected";
 

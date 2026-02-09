@@ -222,7 +222,7 @@ async function parseFitFile(filePath: string): Promise<WorkoutSummary | null> {
   }
 }
 
-export async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
+async function loadWorkoutHistory(): Promise<WorkoutSummary[]> {
   const fitDir = join(homedir(), "fit");
 
   try {
@@ -649,10 +649,6 @@ function synthesizeRiderProfile(workouts: WorkoutSummary[]): string {
   return lines.join("\n");
 }
 
-function formatWorkoutHistory(workouts: WorkoutSummary[]): string {
-  return synthesizeRiderProfile(workouts);
-}
-
 // Response schema for structured output
 export const responseSchema = {
   type: "object",
@@ -743,7 +739,7 @@ function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   return lines.join("\n");
 }
 
-export function getSystemPrompt(workoutHistory: string, trainingZones: TrainingZonesConfig): string {
+function getSystemPrompt(workoutHistory: string, trainingZones: TrainingZonesConfig): string {
   const trainingZonesSection = generateTrainingZonesSection(trainingZones);
 
   return `You are clardio, an AI cycling coach controlling a display screen during indoor cycling workouts. You communicate with the rider through on-screen messages and control their targets.
@@ -898,7 +894,7 @@ Periodic metrics updates with:
 
 export async function buildSystemPrompt(): Promise<string> {
   const workouts = await loadWorkoutHistory();
-  const historyText = formatWorkoutHistory(workouts);
+  const historyText = synthesizeRiderProfile(workouts);
 
   // Compute HR zones from max HR observed across all workouts
   const maxHr = getMaxHrFromHistory(workouts);

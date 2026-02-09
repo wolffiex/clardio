@@ -2,7 +2,6 @@ import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 import { formatTime } from "./handlers";
 import {
   calculateFillPercent,
-  calculateTargetPosition,
   getColorFromDistance,
   POWER_MIN,
   POWER_MAX,
@@ -193,7 +192,7 @@ export class UIController {
     }
 
     const fillPercent = calculateFillPercent(value, min, max);
-    const targetPos = calculateTargetPosition(target, min, max);
+    const targetPos = calculateFillPercent(target, min, max);
     const color = getColorFromDistance(value, target, graceZone, maxDistance);
     const diff = Math.round(value - target);
 

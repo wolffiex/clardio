@@ -20,19 +20,6 @@ export function calculateFillPercent(value: number, min: number, max: number): n
 }
 
 /**
- * Calculate target pointer position on the fixed scale
- * @param target Target value
- * @param min Minimum of the scale
- * @param max Maximum of the scale
- * @returns Percentage (0-100), clamped to range
- */
-export function calculateTargetPosition(target: number, min: number, max: number): number {
-  if (target <= min) return 0;
-  if (target >= max) return 100;
-  return ((target - min) / (max - min)) * 100;
-}
-
-/**
  * Grace zone thresholds (absolute values, not percentages)
  */
 export const POWER_GRACE_ZONE = 10;      // ±10W from target = green

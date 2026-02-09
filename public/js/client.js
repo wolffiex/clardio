@@ -75,13 +75,6 @@ function calculateFillPercent(value, min, max) {
     return 100;
   return (value - min) / (max - min) * 100;
 }
-function calculateTargetPosition(target, min, max) {
-  if (target <= min)
-    return 0;
-  if (target >= max)
-    return 100;
-  return (target - min) / (max - min) * 100;
-}
 var POWER_GRACE_ZONE = 10;
 var POWER_MAX_DISTANCE = 50;
 var CADENCE_GRACE_ZONE = 5;
@@ -214,7 +207,7 @@ class UIController {
       return;
     }
     const fillPercent = calculateFillPercent(value, min, max);
-    const targetPos = calculateTargetPosition(target, min, max);
+    const targetPos = calculateFillPercent(target, min, max);
     const color = getColorFromDistance(value, target, graceZone, maxDistance);
     const diff = Math.round(value - target);
     barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";

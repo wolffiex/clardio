@@ -31,12 +31,6 @@ function isValidMetricsPayload(body: unknown): body is PartialMetrics {
   return hasPower && hasHr && hasCadence && hasAtLeastOne;
 }
 
-export function resetLastKnown(): void {
-  lastKnown.power = 0;
-  lastKnown.hr = 0;
-  lastKnown.cadence = 0;
-}
-
 export async function handleMetrics(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return Response.json(

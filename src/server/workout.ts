@@ -81,13 +81,6 @@ function buildCoachPrompt(newSamples: TimestampedMetrics[], allSamples: Timestam
   return lines.join("\n");
 }
 
-function getTrend(first: number, second: number, threshold: number): string {
-  const diff = second - first;
-  if (diff > threshold) return "↑";
-  if (diff < -threshold) return "↓";
-  return "";
-}
-
 /**
  * Called every COACH_INTERVAL_MS
  */

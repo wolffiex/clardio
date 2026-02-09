@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import type { MetricsEvent, SSEEventType } from "../shared/types";
-import { startWorkout, stopWorkout, isWorkoutActive } from "./workout";
+import type { SSEEventType } from "../shared/types";
+import { startWorkout, stopWorkout } from "./workout";
 import { log } from "./log";
 import { spawnSensorBridge, killSensorBridge } from "./sensor-process";
 
@@ -87,11 +87,6 @@ export function handleSSE(req: Request): Response {
       Connection: "keep-alive",
     },
   });
-}
-
-// Public API for broadcasting events to all connected clients
-export function broadcastMetrics(data: MetricsEvent): void {
-  emitter.emit("broadcast", "metrics", data);
 }
 
 export function broadcast(eventType: SSEEventType, data: unknown): void {

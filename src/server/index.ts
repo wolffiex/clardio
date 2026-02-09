@@ -1,5 +1,5 @@
 import type { Server } from "bun";
-import { handleSSE, broadcast, broadcastMetrics, setBridgeEnabled } from "./sse";
+import { handleSSE, broadcast, setBridgeEnabled } from "./sse";
 import { handleMetrics } from "./routes";
 import { join } from "node:path";
 import { log } from "./log";
@@ -54,7 +54,7 @@ export function createServer(port: number = 0): Server {
 }
 
 // Export utilities for external use
-export { broadcast, broadcastMetrics };
+export { broadcast };
 
 // Run server if this file is executed directly
 if (import.meta.main) {

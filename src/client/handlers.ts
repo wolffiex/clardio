@@ -1,11 +1,4 @@
 /**
- * Parse JSON data from SSE event
- */
-export function parseSSEEvent<T>(data: string): T {
-  return JSON.parse(data);
-}
-
-/**
  * Format seconds as time string (MM:SS or H:MM:SS)
  */
 export function formatTime(seconds: number): string {

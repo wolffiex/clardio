@@ -1,49 +1,13 @@
 import { describe, test, expect, mock } from "bun:test";
-import type { CoachEvent, MetricsBroadcast, TargetEvent } from "../src/shared/types";
 import {
   calculateFillPercent,
-  calculateTargetPosition,
   getColorFromDistance,
   POWER_MIN,
   POWER_MAX,
   POWER_GRACE_ZONE,
   POWER_MAX_DISTANCE,
 } from "../src/client/progress";
-import { parseSSEEvent, formatTime } from "../src/client/handlers";
-
-describe("parseSSEEvent", () => {
-  test("parses coach event", () => {
-    const data = '{"text":"Hello rider"}';
-    const result = parseSSEEvent<CoachEvent>(data);
-    expect(result.text).toBe("Hello rider");
-  });
-
-  test("parses metrics event", () => {
-    const data = '{"power":200,"hr":145,"cadence":90,"elapsed":3600}';
-    const result = parseSSEEvent<MetricsBroadcast>(data);
-    expect(result.power).toBe(200);
-    expect(result.hr).toBe(145);
-    expect(result.cadence).toBe(90);
-    expect(result.elapsed).toBe(3600);
-  });
-
-  test("parses target event", () => {
-    const data = '{"power":180,"cadence":85}';
-    const result = parseSSEEvent<TargetEvent>(data);
-    expect(result.power).toBe(180);
-    expect(result.cadence).toBe(85);
-  });
-
-  test("parses null target event", () => {
-    const data = "null";
-    const result = parseSSEEvent<TargetEvent | null>(data);
-    expect(result).toBeNull();
-  });
-
-  test("throws on invalid JSON", () => {
-    expect(() => parseSSEEvent("invalid json")).toThrow();
-  });
-});
+import { formatTime } from "../src/client/handlers";
 
 describe("formatTime", () => {
   test("formats 0 seconds", () => {
@@ -127,20 +91,20 @@ describe("calculateFillPercent", () => {
   });
 });
 
-describe("calculateTargetPosition", () => {
+describe("calculateFillPercent for target position", () => {
   test("returns 0 when at or below min", () => {
-    expect(calculateTargetPosition(50, POWER_MIN, POWER_MAX)).toBe(0);
-    expect(calculateTargetPosition(30, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(50, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(30, POWER_MIN, POWER_MAX)).toBe(0);
   });
 
   test("returns 100 when at or above max", () => {
-    expect(calculateTargetPosition(400, POWER_MIN, POWER_MAX)).toBe(100);
-    expect(calculateTargetPosition(500, POWER_MIN, POWER_MAX)).toBe(100);
+    expect(calculateFillPercent(400, POWER_MIN, POWER_MAX)).toBe(100);
+    expect(calculateFillPercent(500, POWER_MIN, POWER_MAX)).toBe(100);
   });
 
   test("calculates position within range", () => {
     // 180W target in 50-400 range = (180-50)/(400-50) = 130/350 = ~37.14%
-    const result = calculateTargetPosition(180, POWER_MIN, POWER_MAX);
+    const result = calculateFillPercent(180, POWER_MIN, POWER_MAX);
     expect(result).toBeCloseTo(37.14, 1);
   });
 });
