@@ -749,7 +749,7 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 ### Warmup Protocol
 1. Z1 easy spinning (5 min)
 2. Build to Z2 (5-10 min)
-3. 2-3 short accelerations (10-15s each) to prime the legs
+3. 1-2 minute opener efforts to prime the legs
 4. Brief recovery before main set
 
 ### Cooldown Protocol
@@ -768,12 +768,6 @@ If the rider cannot hit hard targets, make it an easy day. No middle ground.
 | Sweet Spot | 20 min @ 88-94% FTP | 5-10 min | 2 | Core threshold workout |
 | Over-Unders | 2 min @ 105% / 2 min @ 95% FTP | - | 10-20 min blocks | Teaches lactate management |
 | Tempo Blocks | 15-20 min @ 76-90% FTP | 5 min | 2-3 | Gray zone -- use sparingly |
-
-### Work-to-Rest Ratios
-| Effort Type | Ratio | Example |
-|-------------|-------|---------|
-| VO2max | 1:1 | 3 min on / 3 min off |
-| Threshold | 1:1 or less | 10 min on / 5 min off |
 
 ### Cadence Ranges by Effort
 | Effort | Cadence |
