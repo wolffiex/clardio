@@ -341,11 +341,22 @@ function buildUserMessage(isStart: boolean): string {
   if (!isStart && samples.length > 0) {
     sections.push("");
     sections.push("## Status");
-    const recentSamples = getRecentSamples(30_000);
-    if (recentSamples.length > 0) {
+    const statusSamples = getRecentSamples(30_000);
+    if (statusSamples.length > 0) {
       const { currentPhase } = getCurrentPhase(elapsed);
       if (currentPhase) {
-        sections.push("Rider status based on metrics below.");
+        const avgPwr = Math.round(
+          statusSamples.reduce((s, x) => s + x.power, 0) / statusSamples.length
+        );
+        const avgHrVal = Math.round(
+          statusSamples.reduce((s, x) => s + x.hr, 0) / statusSamples.length
+        );
+        const avgCad = Math.round(
+          statusSamples.reduce((s, x) => s + x.cadence, 0) / statusSamples.length
+        );
+        sections.push(
+          `Current zone: ${currentPhase.zone} | Rider avg: ${avgPwr}W ${avgHrVal}bpm ${avgCad}rpm`
+        );
       }
     }
   }
@@ -391,17 +402,31 @@ function buildUserMessage(isStart: boolean): string {
     );
   }
 
-  // Recent metrics (last 30s)
+  // Recent metrics (last 30s) - compact summary
   if (!isStart) {
     sections.push("");
-    sections.push("## Recent Metrics");
     const recentSamples = getRecentSamples(30_000);
-    const now = Date.now();
-    for (const s of recentSamples) {
-      const ago = Math.round((now - s.receivedAt) / 1000);
+    if (recentSamples.length > 0) {
+      const powers = recentSamples.map((s) => s.power);
+      const hrs = recentSamples.map((s) => s.hr);
+      const cadences = recentSamples.map((s) => s.cadence);
+
+      const avg = (arr: number[]) =>
+        Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
+
+      sections.push("## Recent Metrics (last 30s)");
       sections.push(
-        `${ago}s ago: hr:${s.hr} cadence:${s.cadence} power:${s.power}`
+        `Power: avg ${avg(powers)}W, range ${Math.min(...powers)}-${Math.max(...powers)}W`
       );
+      sections.push(
+        `HR: avg ${avg(hrs)}bpm, range ${Math.min(...hrs)}-${Math.max(...hrs)}bpm`
+      );
+      sections.push(
+        `Cadence: avg ${avg(cadences)}rpm, range ${Math.min(...cadences)}-${Math.max(...cadences)}rpm`
+      );
+    } else {
+      sections.push("## Recent Metrics (last 30s)");
+      sections.push("No samples in last 30s");
     }
 
     // HR trend (last 45s)
@@ -419,10 +444,10 @@ function buildUserMessage(isStart: boolean): string {
       else if (diff > 3) trend = "heart rate climbing";
       else if (diff < -10) trend = "heart rate falling quickly";
       else if (diff < -3) trend = "heart rate falling";
-      sections.push(trend);
+      sections.push(`Trend: ${trend}`);
     }
 
-    sections.push(`elapsed: ${elapsedStr}`);
+    sections.push(`Elapsed: ${elapsedStr}`);
   } else {
     sections.push("");
     sections.push(
