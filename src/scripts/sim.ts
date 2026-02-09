@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Sensor simulator - sends fake metrics to the local server
- * Auto-sends every second. Type to update values between sends.
+ * Auto-sends every 3 seconds, silently. Type to update values.
  *
  * Input formats:
  *   hr 130       - set heart rate
@@ -29,19 +29,13 @@ async function sendMetrics() {
   const payload = { hr, cadence, power };
 
   try {
-    const res = await fetch(`${SERVER}/api/metrics`, {
+    await fetch(`${SERVER}/api/metrics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
-    if (res.ok) {
-      console.log(`→ ${JSON.stringify(payload)}`);
-    } else {
-      console.log(`⚠ ${res.status}: ${JSON.stringify(payload)}`);
-    }
-  } catch (e) {
-    console.log(`⚠ Connection failed`);
+  } catch {
+    // silent
   }
 }
 
@@ -59,7 +53,7 @@ function parseInput(line: string): boolean {
       case "rpm": cadence = val; break;
       case "w": power = val; break;
     }
-    console.log(`  set ${named[1]}=${val}`);
+    console.log(`${named[1]}=${val}`);
     return true;
   }
 
@@ -69,11 +63,11 @@ function parseInput(line: string): boolean {
     hr = parseInt(triple[1], 10);
     cadence = parseInt(triple[2], 10);
     power = parseInt(triple[3], 10);
-    console.log(`  set hr=${hr} rpm=${cadence} w=${power}`);
+    console.log(`hr=${hr} rpm=${cadence} w=${power}`);
     return true;
   }
 
-  console.log(`  unknown input: ${trimmed}`);
+  console.log(`unknown: ${trimmed}`);
   return true;
 }
 
@@ -81,17 +75,16 @@ function showPrompt() {
   rl.prompt();
 }
 
-console.log("\nSensor Simulator (auto-sends every 1s)");
+console.log("\nSensor Simulator (auto-sends every 3s)");
 console.log("Commands: hr <N> | rpm <N> | w <N> | <hr> <rpm> <w> | q\n");
 
 rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
 showPrompt();
 
-// Auto-send on a 1-second interval
+// Auto-send on a 3-second interval, silently
 const interval = setInterval(() => {
   sendMetrics();
-  rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
-}, 1000);
+}, 3000);
 
 rl.on("line", (line: string) => {
   const continueRunning = parseInput(line);
