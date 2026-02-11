@@ -51,7 +51,9 @@ if (arg === "coaching" || arg === "both") {
   // Build a realistic sample of what a mid-workout coaching tick looks like
   const zones = getZonesText();
 
-  const sampleUserMessage = `## Plan
+  const sampleUserMessage = `WORKOUT TIME: 15:40
+
+## Plan
 Sweet spot with standing surges
    Easy Spin: 5min Z1 Recovery seated 70-80rpm
    Build to Endurance: 5min Z2 Endurance seated 75-85rpm
@@ -77,6 +79,10 @@ Notes: Steady sweet spot effort at 88-94% FTP
 ## Recent Coach Messages
 [15:20] "Settling in. Good rhythm." -> 195W 90rpm
 [15:30] "HR right where it should be." -> 195W 90rpm
+
+## HR Trajectory
+5m ago: 110 | 4m ago: 122 | 3m ago: 133 | 2m ago: 140 | 1m ago: 144 | now: 146
+Rising +36 bpm over 5 min
 
 ## Recent Metrics (last 30s)
 Power: avg 192W, range 185-200W

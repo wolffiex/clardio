@@ -270,6 +270,10 @@ function buildUserMessage(isStart: boolean): string {
   const elapsedStr = formatElapsed(elapsed);
   const sections: string[] = [];
 
+  // Workout timestamp at the very top
+  sections.push(`WORKOUT TIME: ${elapsedStr}`);
+  sections.push("");
+
   // Plan and current phase (derived from elapsed time)
   if (currentPlan) {
     const { currentPhase, phaseElapsed, phaseRemaining } =
@@ -362,6 +366,16 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("## Recent Coach Messages");
     for (const h of coachHistory) {
       sections.push(`[${h.elapsed}] "${h.message}" -> ${h.power}W ${h.cadence}rpm`);
+    }
+  }
+
+  // HR trajectory (minute-by-minute, before recent metrics)
+  if (!isStart) {
+    const hrTrajectory = buildHrTrajectory();
+    if (hrTrajectory) {
+      sections.push("");
+      sections.push("## HR Trajectory");
+      sections.push(hrTrajectory);
     }
   }
 
@@ -503,6 +517,73 @@ function getNextPhase(currentPhase: Phase): Phase | null {
 function getRecentSamples(windowMs: number): Sample[] {
   const cutoff = Date.now() - windowMs;
   return samples.filter((s) => s.receivedAt >= cutoff);
+}
+
+/**
+ * Build a minute-by-minute HR trajectory going back up to 5 minutes.
+ * For each minute mark, averages HR samples within a ~10s window.
+ * "now" is the average of the last 15 seconds.
+ */
+function buildHrTrajectory(): string | null {
+  const now = Date.now();
+
+  // "now" bucket: average HR from last 15 seconds
+  const nowSamples = samples.filter((s) => s.hr > 0 && now - s.receivedAt <= 15_000);
+  if (nowSamples.length === 0) return null;
+
+  const avg = (arr: number[]) =>
+    Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
+
+  const nowHr = avg(nowSamples.map((s) => s.hr));
+
+  // Minute-mark buckets (5m, 4m, 3m, 2m, 1m ago) with ~10s window
+  const marks: { label: string; minutesAgo: number }[] = [
+    { label: "5m ago", minutesAgo: 5 },
+    { label: "4m ago", minutesAgo: 4 },
+    { label: "3m ago", minutesAgo: 3 },
+    { label: "2m ago", minutesAgo: 2 },
+    { label: "1m ago", minutesAgo: 1 },
+  ];
+
+  const points: { label: string; hr: number; minutesAgo: number }[] = [];
+
+  for (const mark of marks) {
+    const targetMs = now - mark.minutesAgo * 60_000;
+    const windowSamples = samples.filter(
+      (s) => s.hr > 0 && Math.abs(s.receivedAt - targetMs) <= 10_000
+    );
+    if (windowSamples.length > 0) {
+      points.push({
+        label: mark.label,
+        hr: avg(windowSamples.map((s) => s.hr)),
+        minutesAgo: mark.minutesAgo,
+      });
+    }
+  }
+
+  // Need at least 1 historical point plus "now" to be useful
+  if (points.length === 0) return null;
+
+  // Build the timeline string
+  const parts = points.map((p) => `${p.label}: ${p.hr}`);
+  parts.push(`now: ${nowHr}`);
+  const timeline = parts.join(" | ");
+
+  // Calculate trend from earliest available point to now
+  const earliest = points[0];
+  const totalChange = nowHr - earliest.hr;
+  const spanMinutes = earliest.minutesAgo;
+
+  let trend: string;
+  if (Math.abs(totalChange) <= 2) {
+    trend = `Stable (\u00B1${Math.abs(totalChange)} bpm over ${spanMinutes} min)`;
+  } else if (totalChange > 0) {
+    trend = `Rising +${totalChange} bpm over ${spanMinutes} min`;
+  } else {
+    trend = `Falling ${totalChange} bpm over ${spanMinutes} min`;
+  }
+
+  return `${timeline}\n${trend}`;
 }
 
 function updateCoachHistory(response: CoachResponse): void {
