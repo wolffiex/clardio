@@ -83,6 +83,10 @@ Power: 195W | Cadence: 90rpm
 [15:20] "Settling in. Good rhythm."
 [15:30] "HR right where it should be."
 
+## Coach Notes
+[5:00] Warmup went smoothly, HR responded normally
+[12:00] First interval HR peaked at Z4 ceiling, recovered well
+
 ## HR Trajectory
 5m ago: 110 | 4m ago: 122 | 3m ago: 133 | 2m ago: 140 | 1m ago: 144 | now: 146
 Rising +36 bpm over 5 min

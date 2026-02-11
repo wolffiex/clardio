@@ -47,6 +47,9 @@ const MAX_COACH_HISTORY = 10;
 let lastPhaseName: string | null = null;
 let lastPhasePosition: string | null = null;
 
+// Coach notes (persistent memory across ticks)
+let coachNotes: Array<{ elapsed: string; note: string }> = [];
+
 // Cached zones text (computed once at workout start, never recalculated mid-workout)
 let cachedZonesText: string = "";
 
@@ -72,6 +75,7 @@ export async function startWorkout(): Promise<void> {
   lastLatencyMs = null;
   lastPhaseName = null;
   lastPhasePosition = null;
+  coachNotes = [];
   currentPlan = null;
   currentPlanId = null;
 
@@ -390,6 +394,15 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
+  // Coach notes (persistent memory)
+  if (coachNotes.length > 0) {
+    sections.push("");
+    sections.push("## Coach Notes");
+    for (const n of coachNotes) {
+      sections.push(`[${n.elapsed}] ${n.note}`);
+    }
+  }
+
   // HR trajectory (minute-by-minute, before recent metrics)
   if (!isStart) {
     const hrTrajectory = buildHrTrajectory();
@@ -617,5 +630,8 @@ function updateCoachHistory(response: CoachResponse): void {
   });
   if (coachHistory.length > MAX_COACH_HISTORY) {
     coachHistory.shift();
+  }
+  if (response.note) {
+    coachNotes.push({ elapsed, note: response.note });
   }
 }

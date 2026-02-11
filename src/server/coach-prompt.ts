@@ -33,6 +33,7 @@ export type CoachResponse = {
   message: string;
   power: number;
   cadence: number;
+  note: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -106,8 +107,13 @@ export const coachSchema = {
       type: "number",
       description: "Target cadence in RPM",
     },
+    note: {
+      type: ["string", "null"],
+      description:
+        "Optional internal note about workout trajectory. Not shown to rider. Use for observations about fatigue, HR trends, plan adjustments. Only write when something meaningful changes.",
+    },
   },
-  required: ["message", "power", "cadence"],
+  required: ["message", "power", "cadence", "note"],
   additionalProperties: false,
 } as const;
 
@@ -869,7 +875,11 @@ HR lags power by 2-3 minutes. It is a delayed, asymmetric indicator -- not a rea
 - Over a 30+ minute session, expect cardiac drift: HR will climb 5-10 bpm at the same power. Plan for this -- reduce power targets slightly in later phases.
 - Each hard interval pushes the recovery HR baseline higher. The 4th interval's recovery HR will be higher than the 1st's. This is normal.
 - Use the HR Trajectory in the data to see the trend. If HR has risen steadily for 3+ minutes, it has momentum -- do not add power.
-- Your targets are suggestions. The rider's actual power, HR, and cadence are what matter. Always react to what the rider IS doing, not what you told them to do. If you set 160W but the rider is at 190W, that is the reality — coach the reality.`;
+- Your targets are suggestions. The rider's actual power, HR, and cadence are what matter. Always react to what the rider IS doing, not what you told them to do. If you set 160W but the rider is at 190W, that is the reality — coach the reality.
+
+## Notes
+
+You can optionally include a \`note\` in your response — an internal observation about the workout trajectory. Notes are not shown to the rider. They are shown back to you on every subsequent message as 'Coach Notes'. Use them to track fatigue patterns, HR trends, plan adjustments, or anything you want to remember. Only write a note when something meaningful changes — not every message.`;
 }
 
 /**
