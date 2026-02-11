@@ -1,6 +1,6 @@
 import type { Server } from "bun";
 import { handleSSE, broadcast, setBridgeEnabled } from "./sse";
-import { handleMetrics } from "./routes";
+import { handleMetrics, handleTag } from "./routes";
 import { join } from "node:path";
 import { log } from "./log";
 
@@ -27,6 +27,10 @@ export function createServer(port: number = 0): Server {
 
       if (pathname === "/api/metrics") {
         return handleMetrics(req);
+      }
+
+      if (pathname === "/api/tag") {
+        return handleTag(req);
       }
 
       // Static file serving

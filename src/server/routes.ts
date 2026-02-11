@@ -3,6 +3,62 @@ import { broadcast } from "./sse";
 import { addMetrics, getElapsed } from "./workout";
 import { log } from "./log";
 
+// ---------------------------------------------------------------------------
+// POST /api/tag - rider bookmarks a moment during the ride
+// ---------------------------------------------------------------------------
+
+interface TagPayload {
+  text: string;
+}
+
+function isValidTagPayload(body: unknown): body is TagPayload {
+  if (typeof body !== "object" || body === null) return false;
+  const obj = body as Record<string, unknown>;
+  return typeof obj.text === "string" && obj.text.trim().length > 0;
+}
+
+export async function handleTag(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return Response.json(
+      { ok: false, error: "Method not allowed" } satisfies ToolResponse,
+      { status: 405 }
+    );
+  }
+
+  try {
+    const text = await req.text();
+    if (!text) {
+      return Response.json(
+        { ok: false, error: "Request body required" } satisfies ToolResponse,
+        { status: 400 }
+      );
+    }
+
+    const body = JSON.parse(text);
+
+    if (!isValidTagPayload(body)) {
+      return Response.json(
+        { ok: false, error: "Invalid payload: text (non-empty string) required" } satisfies ToolResponse,
+        { status: 400 }
+      );
+    }
+
+    const elapsedSec = getElapsed();
+    const minutes = Math.floor(elapsedSec / 60);
+    const seconds = elapsedSec % 60;
+    const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+
+    console.log(`\u{1F3F7}\uFE0F TAG [${timeStr}] "${body.text.trim()}"`);
+
+    return Response.json({ ok: true } satisfies ToolResponse);
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: "Invalid JSON" } satisfies ToolResponse,
+      { status: 400 }
+    );
+  }
+}
+
 // Tool endpoint response type
 interface ToolResponse {
   ok: boolean;

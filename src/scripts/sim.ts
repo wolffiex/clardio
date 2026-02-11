@@ -8,6 +8,8 @@
  *   rpm 90       - set cadence
  *   w 200        - set power
  *   130 90 200   - set all three (hr cadence power)
+ *   t some note  - tag/bookmark this moment
+ *   tag some note - tag/bookmark this moment
  *   q            - quit
  *   (empty)      - do nothing, auto-send continues
  */
@@ -39,10 +41,30 @@ async function sendMetrics() {
   }
 }
 
+async function sendTag(text: string) {
+  try {
+    await fetch(`${SERVER}/api/tag`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    console.log(`tagged: ${text}`);
+  } catch {
+    console.log("tag failed (server unreachable)");
+  }
+}
+
 function parseInput(line: string): boolean {
   const trimmed = line.trim().toLowerCase();
   if (trimmed === "q") return false;
   if (!trimmed) return true;
+
+  // Tag: "t some note" or "tag some note"
+  const tagMatch = trimmed.match(/^(?:t|tag)\s+(.+)$/);
+  if (tagMatch) {
+    sendTag(tagMatch[1]);
+    return true;
+  }
 
   // Named value: "hr 130", "rpm 90", "w 200"
   const named = trimmed.match(/^(hr|rpm|w)\s+(\d+)$/);
@@ -76,7 +98,7 @@ function showPrompt() {
 }
 
 console.log("\nSensor Simulator (auto-sends every 3s)");
-console.log("Commands: hr <N> | rpm <N> | w <N> | <hr> <rpm> <w> | q\n");
+console.log("Commands: hr <N> | rpm <N> | w <N> | <hr> <rpm> <w> | t <note> | q\n");
 
 rl.setPrompt(`[hr:${hr} rpm:${cadence} w:${power}] > `);
 showPrompt();
