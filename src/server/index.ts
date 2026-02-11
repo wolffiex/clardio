@@ -3,11 +3,14 @@ import { handleSSE, broadcast, setBridgeEnabled } from "./sse";
 import { handleMetrics, handleTag } from "./routes";
 import { join } from "node:path";
 import { log } from "./log";
+import { setDevMode } from "./db";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
 
 // Parse command-line flags
 const noBridge = process.argv.includes("--no-bridge");
+const isDev = process.argv.includes("--hot") || noBridge;
+setDevMode(isDev);
 
 export function createServer(port: number = 0): Server {
   return Bun.serve({
@@ -66,6 +69,9 @@ if (import.meta.main) {
     setBridgeEnabled(false);
     log("Sensor bridge disabled, using simulator mode");
   }
+  const dbName = isDev ? "clardio-dev.db" : "clardio.db";
+  const dbLabel = isDev ? "development" : "production";
+  log(`[DB] Using ${dbLabel} database: ~/.clardio/${dbName}`);
   const server = createServer(3000);
   console.log(`Clardio running at http://localhost:${server.port}`);
 }

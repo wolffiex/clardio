@@ -2,9 +2,18 @@ import { Database } from "bun:sqlite";
 import { join } from "path";
 import { homedir } from "os";
 
-// Store in ~/.clardio/clardio.db
 const DB_DIR = join(homedir(), ".clardio");
-const DB_PATH = join(DB_DIR, "clardio.db");
+
+let devMode = false;
+
+export function setDevMode(enabled: boolean): void {
+  devMode = enabled;
+}
+
+function getDbPath(): string {
+  const filename = devMode ? "clardio-dev.db" : "clardio.db";
+  return join(DB_DIR, filename);
+}
 
 function ensureDir(dir: string): void {
   try {
@@ -17,7 +26,8 @@ let db: Database | null = null;
 export function getDb(): Database {
   if (!db) {
     ensureDir(DB_DIR);
-    db = new Database(DB_PATH);
+    const dbPath = getDbPath();
+    db = new Database(dbPath);
     db.run("PRAGMA journal_mode=WAL");
     db.run("PRAGMA foreign_keys=ON");
     migrate(db);
