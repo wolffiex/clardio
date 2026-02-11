@@ -47,6 +47,9 @@ const MAX_COACH_HISTORY = 10;
 let lastPhaseName: string | null = null;
 let lastPhasePosition: string | null = null;
 
+// Cached zones text (computed once at workout start, never recalculated mid-workout)
+let cachedZonesText: string = "";
+
 // Metrics buffer
 type Sample = { power: number; hr: number; cadence: number; receivedAt: number };
 let samples: Sample[] = [];
@@ -73,6 +76,9 @@ export async function startWorkout(): Promise<void> {
   currentPlanId = null;
 
   try {
+    // 0. Cache zones BEFORE any samples are saved (avoids warmup data polluting zones)
+    cachedZonesText = getZonesText();
+
     // 1. Build planning prompts (static system + dynamic user)
     const recentPlans = getRecentPlans(5);
     const previousPlansText =
@@ -172,6 +178,7 @@ export function stopWorkout(): void {
   currentPlan = null;
   currentPlanId = null;
   coachingPrompt = "";
+  cachedZonesText = "";
   coachHistory = [];
   samples = [];
   lastSampleTime = null;
@@ -284,10 +291,10 @@ function buildUserMessage(isStart: boolean): string {
       accumulated += phase.duration_minutes;
     }
 
-    // Zones (dynamic, computed from DB)
+    // Zones (cached at workout start — never recalculated mid-workout)
     sections.push("");
     sections.push("## Zones");
-    sections.push(getZonesText());
+    sections.push(cachedZonesText);
 
     sections.push("");
     sections.push("## Current Phase");

@@ -279,11 +279,12 @@ function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary |
 function loadSessionsFromDb(): SessionSummary[] {
   const db = getDb();
 
-  // Get plans that have samples (any session we collected data for)
+  // Get completed plans that have samples (exclude crashed/incomplete workouts)
   const plans = db
     .query(
       `SELECT p.* FROM plans p
-       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+       WHERE p.completed = 1
+         AND EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
        ORDER BY p.created_at ASC`
     )
     .all() as PlanRow[];
