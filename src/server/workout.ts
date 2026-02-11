@@ -371,6 +371,16 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
+  // Current targets (from most recent coach response)
+  sections.push("");
+  sections.push("## Current Targets");
+  if (coachHistory.length > 0) {
+    const last = coachHistory[coachHistory.length - 1];
+    sections.push(`Power: ${last.power}W | Cadence: ${last.cadence}rpm`);
+  } else {
+    sections.push("No targets set yet.");
+  }
+
   // Recent coach messages
   if (coachHistory.length > 0) {
     sections.push("");

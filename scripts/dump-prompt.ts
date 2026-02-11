@@ -76,9 +76,12 @@ Phase time: 3:20 elapsed, 4:40 remaining
 Cues: smooth circles, drop heels, quiet hips, rhythmic breathing
 Notes: Steady sweet spot effort at 88-94% FTP
 
+## Current Targets
+Power: 195W | Cadence: 90rpm
+
 ## Recent Coach Messages
-[15:20] "Settling in. Good rhythm." -> 195W 90rpm
-[15:30] "HR right where it should be." -> 195W 90rpm
+[15:20] "Settling in. Good rhythm."
+[15:30] "HR right where it should be."
 
 ## HR Trajectory
 5m ago: 110 | 4m ago: 122 | 3m ago: 133 | 2m ago: 140 | 1m ago: 144 | now: 146
