@@ -606,6 +606,7 @@ function formatHrZones(zones: HrZones): string {
 interface TrainingZonesConfig {
   hrZones: HrZones | null;
   estimatedFtp: number | null;
+  isDefault: boolean;
 }
 
 function formatPowerZones(ftp: number): string {
@@ -641,7 +642,11 @@ function formatHrZonesGeneric(): string {
 
 function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   const lines: string[] = [];
-  lines.push("## Training Zones");
+  if (config.isDefault) {
+    lines.push("## Training Zones (estimated defaults -- will update from workout data)");
+  } else {
+    lines.push("## Training Zones");
+  }
   lines.push("");
 
   if (config.estimatedFtp !== null) {
@@ -662,11 +667,12 @@ function generateTrainingZonesSection(config: TrainingZonesConfig): string {
 
 function generateCompactZones(config: TrainingZonesConfig): string {
   const lines: string[] = [];
+  const defaultTag = config.isDefault ? " (estimated defaults)" : "";
 
   if (config.estimatedFtp !== null) {
     const ftp = config.estimatedFtp;
     lines.push(
-      `FTP: ~${ftp}W | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`
+      `FTP: ~${ftp}W${defaultTag} | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`
     );
   } else {
     lines.push(
@@ -677,7 +683,7 @@ function generateCompactZones(config: TrainingZonesConfig): string {
   if (config.hrZones !== null) {
     const z = config.hrZones;
     lines.push(
-      `LTHR: ${z.lthr} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`
+      `LTHR: ${z.lthr}${defaultTag} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`
     );
   }
 
@@ -687,6 +693,10 @@ function generateCompactZones(config: TrainingZonesConfig): string {
 // ---------------------------------------------------------------------------
 // Shared data loader
 // ---------------------------------------------------------------------------
+
+// Default values for new riders with no DB history
+const DEFAULT_MAX_HR = 170;
+const DEFAULT_FTP = 200;
 
 function loadRiderData(): {
   riderProfile: string;
@@ -699,20 +709,14 @@ function loadRiderData(): {
   const maxHr = getMaxHrFromSessions(sessions);
   const ftpEstimate = estimateFtpFromSessions(sessions);
 
-  let hrZones: HrZones | null = null;
-  let estimatedFtp: number | null = null;
+  const hasDbData = maxHr !== null || ftpEstimate !== null;
 
-  if (maxHr !== null) {
-    hrZones = calculateHrZones(maxHr);
-  }
-
-  if (ftpEstimate !== null) {
-    estimatedFtp = ftpEstimate;
-  }
+  const hrZones = calculateHrZones(maxHr ?? DEFAULT_MAX_HR);
+  const estimatedFtp = ftpEstimate ?? DEFAULT_FTP;
 
   return {
     riderProfile,
-    zones: { hrZones, estimatedFtp },
+    zones: { hrZones, estimatedFtp, isDefault: !hasDbData },
   };
 }
 
