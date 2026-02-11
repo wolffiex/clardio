@@ -1,5 +1,6 @@
 import { SSEClient } from "./sse-client";
 import { UIController } from "./ui";
+import { handlePlan } from "./handlers";
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 
 // Initialize
@@ -71,6 +72,10 @@ if (testMode) {
 
   sse.on("target", (data) => {
     ui.updateTarget(data as TargetEvent | null);
+  });
+
+  sse.on("plan", (data) => {
+    handlePlan(data);
   });
 
   sse.on("_connected", () => {

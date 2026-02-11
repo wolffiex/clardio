@@ -120,6 +120,17 @@ export async function startWorkout(): Promise<void> {
     // 3. Save plan to SQLite
     currentPlanId = savePlan(JSON.stringify(currentPlan.phases));
 
+    // 3.5 Broadcast plan to SSE clients for timeline rendering
+    broadcast("plan", {
+      summary: currentPlan.summary,
+      phases: currentPlan.phases.map(phase => ({
+        name: phase.name,
+        duration_minutes: phase.duration_minutes,
+        zone: phase.zone,
+        position: phase.position,
+      }))
+    });
+
     // 4. Build coaching system prompt (done once, reused every tick — static)
     coachingPrompt = buildCoachingSystemPrompt();
 

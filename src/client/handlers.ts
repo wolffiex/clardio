@@ -11,3 +11,18 @@ export function formatTime(seconds: number): string {
   }
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
+
+// ---------------------------------------------------------------------------
+// Plan state
+// ---------------------------------------------------------------------------
+
+let currentPlan: any = null;
+
+export function handlePlan(data: any): void {
+  currentPlan = data;
+  console.log("Plan received:", data.summary, `${data.phases.length} phases`);
+}
+
+export function getPlan(): any {
+  return currentPlan;
+}

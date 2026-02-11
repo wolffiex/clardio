@@ -28,7 +28,7 @@ class SSEClient {
       console.error("[SSE] Error, will auto-reconnect", err);
       this.emit("_error", err);
     };
-    const eventTypes = ["connected", "coach", "metrics", "target"];
+    const eventTypes = ["connected", "coach", "metrics", "target", "plan"];
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event) => {
         try {
@@ -61,6 +61,11 @@ function formatTime(seconds) {
     return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+var currentPlan = null;
+function handlePlan(data) {
+  currentPlan = data;
+  console.log("Plan received:", data.summary, `${data.phases.length} phases`);
 }
 
 // src/client/progress.ts
@@ -290,6 +295,9 @@ if (testMode) {
   });
   sse.on("target", (data) => {
     ui.updateTarget(data);
+  });
+  sse.on("plan", (data) => {
+    handlePlan(data);
   });
   sse.on("_connected", () => {
     ui.setConnectionStatus("connecting");

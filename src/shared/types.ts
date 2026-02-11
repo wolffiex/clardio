@@ -24,5 +24,5 @@ export interface TargetEvent {
 }
 
 // Union type for all SSE events
-export type SSEEventType = "coach" | "metrics" | "target" | "connected";
+export type SSEEventType = "coach" | "metrics" | "target" | "connected" | "plan";
 
