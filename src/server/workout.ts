@@ -365,7 +365,7 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("");
     sections.push("## Recent Coach Messages");
     for (const h of coachHistory) {
-      sections.push(`[${h.elapsed}] "${h.message}" -> ${h.power}W ${h.cadence}rpm`);
+      sections.push(`[${h.elapsed}] "${h.message}"`);
     }
   }
 

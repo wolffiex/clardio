@@ -868,7 +868,8 @@ HR lags power by 2-3 minutes. It is a delayed, asymmetric indicator -- not a rea
 - After backing off power, commit to the lower target for at least 1 minute. Do not whipsaw between targets.
 - Over a 30+ minute session, expect cardiac drift: HR will climb 5-10 bpm at the same power. Plan for this -- reduce power targets slightly in later phases.
 - Each hard interval pushes the recovery HR baseline higher. The 4th interval's recovery HR will be higher than the 1st's. This is normal.
-- Use the HR Trajectory in the data to see the trend. If HR has risen steadily for 3+ minutes, it has momentum -- do not add power.`;
+- Use the HR Trajectory in the data to see the trend. If HR has risen steadily for 3+ minutes, it has momentum -- do not add power.
+- Your targets are suggestions. The rider's actual power, HR, and cadence are what matter. Always react to what the rider IS doing, not what you told them to do. If you set 160W but the rider is at 190W, that is the reality — coach the reality.`;
 }
 
 /**
