@@ -142,7 +142,7 @@ export type CoachTickRow = {
   id: number;
   plan_id: number;
   elapsed_s: number;
-  user_message: string;
+  user_message: string | null;
   response_message: string | null;
   response_power: number | null;
   response_cadence: number | null; // legacy, no longer written
@@ -153,7 +153,7 @@ export type CoachTickRow = {
 export function saveCoachTick(
   planId: number,
   elapsedS: number,
-  userMessage: string,
+  userMessage: string | null,
   response: { message: string; power: number | null; note: string | null } | null,
   latencyMs: number | null
 ): void {

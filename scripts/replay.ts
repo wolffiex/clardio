@@ -51,7 +51,7 @@ type CoachTickRow = {
   id: number;
   plan_id: number;
   elapsed_s: number;
-  user_message: string;
+  user_message: string | null;
   response_message: string | null;
   response_power: number | null;
   response_cadence: number | null;
@@ -693,11 +693,16 @@ async function main() {
     console.log("=".repeat(80));
     console.log();
 
-    // Show the actual user message that was sent
-    console.log("--- ACTUAL USER MESSAGE (from DB) ---");
-    console.log(closestTick.user_message);
-    console.log("--- END ACTUAL USER MESSAGE ---");
-    console.log();
+    // Show the actual user message that was sent (if stored)
+    if (closestTick.user_message) {
+      console.log("--- ACTUAL USER MESSAGE (from DB) ---");
+      console.log(closestTick.user_message);
+      console.log("--- END ACTUAL USER MESSAGE ---");
+      console.log();
+    } else {
+      console.log("  (user_message not stored -- will use reconstructed prompt)");
+      console.log();
+    }
 
     // Show the actual coach response
     console.log("--- ACTUAL COACH RESPONSE ---");
@@ -731,9 +736,9 @@ async function main() {
   const zonePowerRanges = getZonePowerRanges();
 
   // Build reconstructed user message (always shown for comparison / --call use)
-  const userMessage = closestTick
-    ? closestTick.user_message
-    : buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText, zonePowerRanges);
+  // Use stored user_message if available, otherwise reconstruct from DB data
+  const userMessage = closestTick?.user_message
+    ?? buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText, zonePowerRanges);
 
   // Print system prompt
   console.log("=".repeat(80));
@@ -745,7 +750,7 @@ async function main() {
 
   // Print user message (actual from tick or reconstructed)
   console.log("=".repeat(80));
-  console.log(closestTick ? "USER MESSAGE (from stored tick)" : "USER MESSAGE (reconstructed)");
+  console.log(closestTick?.user_message ? "USER MESSAGE (from stored tick)" : "USER MESSAGE (reconstructed)");
   console.log("=".repeat(80));
   console.log();
   console.log(userMessage);

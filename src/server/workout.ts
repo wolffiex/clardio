@@ -202,7 +202,7 @@ export async function startWorkout(): Promise<void> {
     // 5.5 Save initial coach tick
     if (currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, initialMessage, response, lastLatencyMs);
+      saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
     }
 
     // 6. Start the 10-second coaching loop
@@ -317,14 +317,14 @@ async function onCoachTick(): Promise<void> {
     // Save coach tick to DB
     if (currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, userMessage, response, lastLatencyMs);
+      saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
     }
   } catch (err) {
     console.error("Coach tick error:", err);
     // Save failed tick to DB (response=null)
     if (currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, userMessage, null, null);
+      saveCoachTick(currentPlanId, elapsedS, null, null, null);
     }
   }
 }
