@@ -243,8 +243,8 @@ export function addMetrics(metrics: {
   power: number;
   hr: number;
   cadence: number;
-}): void {
-  if (!workoutActive) return;
+}): boolean {
+  if (!workoutActive) return false;
 
   const now = Date.now();
   const durationMs = lastSampleTime ? now - lastSampleTime : 0;
@@ -263,6 +263,8 @@ export function addMetrics(metrics: {
       metrics.cadence
     );
   }
+
+  return true;
 }
 
 /**

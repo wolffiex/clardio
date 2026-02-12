@@ -122,10 +122,10 @@ export async function handleMetrics(req: Request): Promise<Response> {
     const broadcastData: MetricsBroadcast = { ...lastKnown, elapsed: getElapsed() };
     broadcast("metrics", broadcastData);
 
-    // Buffer for coach
-    addMetrics(lastKnown);
+    // Buffer for coach (returns false if no workout is active)
+    const buffered = addMetrics(lastKnown);
 
-    log(`POST /api/metrics → power:${lastKnown.power} hr:${lastKnown.hr} cadence:${lastKnown.cadence}`);
+    log(`POST /api/metrics → power:${lastKnown.power} hr:${lastKnown.hr} cadence:${lastKnown.cadence}${buffered ? "" : " (dropped, no active workout)"}`);
 
     return Response.json({ ok: true } satisfies ToolResponse);
   } catch (error) {

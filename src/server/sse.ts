@@ -62,10 +62,14 @@ export function handleSSE(req: Request): Response {
         clientCount--;
         log(`SSE client disconnected (total: ${clientCount})`);
 
-        // Stop workout session and sensor bridge
-        stopWorkout();
-        if (bridgeEnabled) {
-          killSensorBridge();
+        // Only stop workout and bridge when the last client disconnects.
+        // During a browser refresh, the new connection arrives before the old
+        // one aborts, so clientCount stays > 0 and the workout survives.
+        if (clientCount <= 0) {
+          stopWorkout();
+          if (bridgeEnabled) {
+            killSensorBridge();
+          }
         }
         try {
           controller.close();
