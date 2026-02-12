@@ -505,11 +505,12 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Coach notes (persistent memory)
+  // Coach notes (persistent memory, last 3 only)
   if (coachNotes.length > 0) {
     sections.push("");
     sections.push("## Coach Notes");
-    for (const n of coachNotes) {
+    const recentNotes = coachNotes.slice(-3);
+    for (const n of recentNotes) {
       sections.push(`[${n.elapsed}] ${n.note}`);
     }
   }
