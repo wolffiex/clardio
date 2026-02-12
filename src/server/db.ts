@@ -61,6 +61,25 @@ function migrate(db: Database): void {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_samples_plan_id ON samples(plan_id)
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS coach_ticks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL,
+      elapsed_s REAL NOT NULL,
+      user_message TEXT NOT NULL,
+      response_message TEXT,
+      response_power REAL,
+      response_cadence REAL,
+      response_note TEXT,
+      latency_ms INTEGER,
+      FOREIGN KEY (plan_id) REFERENCES plans(id)
+    )
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_coach_ticks_plan_id ON coach_ticks(plan_id)
+  `);
 }
 
 export function closeDb(): void {
@@ -120,4 +139,47 @@ export function getSamplesForPlan(planId: number): Array<{
   return db.query(
     "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
   ).all(planId) as any[];
+}
+
+export type CoachTickRow = {
+  id: number;
+  plan_id: number;
+  elapsed_s: number;
+  user_message: string;
+  response_message: string | null;
+  response_power: number | null;
+  response_cadence: number | null;
+  response_note: string | null;
+  latency_ms: number | null;
+};
+
+export function saveCoachTick(
+  planId: number,
+  elapsedS: number,
+  userMessage: string,
+  response: { message: string; power: number; cadence: number; note: string | null } | null,
+  latencyMs: number | null
+): void {
+  const db = getDb();
+  db.run(
+    `INSERT INTO coach_ticks (plan_id, elapsed_s, user_message, response_message, response_power, response_cadence, response_note, latency_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      planId,
+      elapsedS,
+      userMessage,
+      response?.message ?? null,
+      response?.power ?? null,
+      response?.cadence ?? null,
+      response?.note ?? null,
+      latencyMs,
+    ]
+  );
+}
+
+export function getCoachTicks(planId: number): CoachTickRow[] {
+  const db = getDb();
+  return db.query(
+    "SELECT * FROM coach_ticks WHERE plan_id = ? ORDER BY elapsed_s"
+  ).all(planId) as CoachTickRow[];
 }

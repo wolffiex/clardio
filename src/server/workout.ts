@@ -15,7 +15,7 @@ import {
   getZonesText,
 } from "./coach-prompt";
 import { planWorkout, sendCoachMessage } from "./coach";
-import { savePlan, getRecentPlans, completePlan, saveSample } from "./db";
+import { savePlan, getRecentPlans, completePlan, saveSample, saveCoachTick } from "./db";
 import { broadcast } from "./sse";
 import { log } from "./log";
 
@@ -156,6 +156,12 @@ export async function startWorkout(): Promise<void> {
       );
     }
 
+    // 5.5 Save initial coach tick
+    if (currentPlanId) {
+      const elapsedS = getElapsedMs() / 1000;
+      saveCoachTick(currentPlanId, elapsedS, initialMessage, response, lastLatencyMs);
+    }
+
     // 6. Start the 10-second coaching loop
     coachTimer = setInterval(onCoachTick, COACH_INTERVAL_MS);
   } catch (err) {
@@ -271,8 +277,19 @@ async function onCoachTick(): Promise<void> {
         `Coach: "${response.message}" | ${response.power}W ${response.cadence}rpm`
       );
     }
+
+    // Save coach tick to DB
+    if (currentPlanId) {
+      const elapsedS = getElapsedMs() / 1000;
+      saveCoachTick(currentPlanId, elapsedS, userMessage, response, lastLatencyMs);
+    }
   } catch (err) {
     console.error("Coach tick error:", err);
+    // Save failed tick to DB (response=null)
+    if (currentPlanId) {
+      const elapsedS = getElapsedMs() / 1000;
+      saveCoachTick(currentPlanId, elapsedS, userMessage, null, null);
+    }
   }
 }
 

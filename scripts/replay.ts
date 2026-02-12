@@ -46,6 +46,18 @@ type SampleRow = {
   cadence: number | null;
 };
 
+type CoachTickRow = {
+  id: number;
+  plan_id: number;
+  elapsed_s: number;
+  user_message: string;
+  response_message: string | null;
+  response_power: number | null;
+  response_cadence: number | null;
+  response_note: string | null;
+  latency_ms: number | null;
+};
+
 // ---------------------------------------------------------------------------
 // Time helpers
 // ---------------------------------------------------------------------------
@@ -81,9 +93,19 @@ function formatDuration(totalMs: number): string {
 
 function listPlans(): void {
   const db = openDb();
+
+  // Check if coach_ticks table exists (old DBs may not have it)
+  const hasTicksTable = db.query(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='coach_ticks'"
+  ).get() !== null;
+
+  const tickCountSql = hasTicksTable
+    ? "(SELECT COUNT(*) FROM coach_ticks t WHERE t.plan_id = p.id)"
+    : "0";
+
   const plans = db.query(
-    "SELECT p.*, (SELECT COUNT(*) FROM samples s WHERE s.plan_id = p.id) AS sample_count, (SELECT MAX(timestamp_ms) - MIN(timestamp_ms) FROM samples s WHERE s.plan_id = p.id) AS span_ms FROM plans p ORDER BY p.id"
-  ).all() as (PlanRow & { sample_count: number; span_ms: number | null })[];
+    `SELECT p.*, (SELECT COUNT(*) FROM samples s WHERE s.plan_id = p.id) AS sample_count, (SELECT MAX(timestamp_ms) - MIN(timestamp_ms) FROM samples s WHERE s.plan_id = p.id) AS span_ms, ${tickCountSql} AS tick_count FROM plans p ORDER BY p.id`
+  ).all() as (PlanRow & { sample_count: number; span_ms: number | null; tick_count: number })[];
 
   if (plans.length === 0) {
     console.log("No plans found in database.");
@@ -99,8 +121,9 @@ function listPlans(): void {
     const actualDuration = p.span_ms ? formatDuration(p.span_ms) : "no samples";
     const status = p.completed ? "done" : "incomplete";
     const phaseNames = phases.map((ph) => ph.name).join(", ");
+    const tickInfo = p.tick_count > 0 ? ` | ${p.tick_count} ticks` : "";
     console.log(
-      `  ${p.id}. [${p.created_at}] ${status} | plan: ${totalPlanMin}min | actual: ${actualDuration} | ${p.sample_count} samples`
+      `  ${p.id}. [${p.created_at}] ${status} | plan: ${totalPlanMin}min | actual: ${actualDuration} | ${p.sample_count} samples${tickInfo}`
     );
     console.log(`     phases: ${phaseNames}`);
     if (p.summary) {
@@ -109,6 +132,7 @@ function listPlans(): void {
   }
   console.log();
   console.log("Usage: bun scripts/replay.ts <plan_id> <MM:SS> [--call]");
+  console.log("       bun scripts/replay.ts <plan_id> --ticks");
   db.close();
 }
 
@@ -431,6 +455,64 @@ async function callCoach(systemPrompt: string, userMessage: string): Promise<Coa
 // Main
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Tick helpers
+// ---------------------------------------------------------------------------
+
+function loadCoachTicks(db: Database, planId: number): CoachTickRow[] {
+  // Check if coach_ticks table exists (old DBs may not have it)
+  const hasTicksTable = db.query(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='coach_ticks'"
+  ).get() !== null;
+  if (!hasTicksTable) return [];
+
+  return db.query(
+    "SELECT * FROM coach_ticks WHERE plan_id = ? ORDER BY elapsed_s"
+  ).all(planId) as CoachTickRow[];
+}
+
+function findClosestTick(ticks: CoachTickRow[], elapsedS: number): CoachTickRow | null {
+  if (ticks.length === 0) return null;
+  let closest = ticks[0];
+  let closestDist = Math.abs(closest.elapsed_s - elapsedS);
+  for (const tick of ticks) {
+    const dist = Math.abs(tick.elapsed_s - elapsedS);
+    if (dist < closestDist) {
+      closest = tick;
+      closestDist = dist;
+    }
+  }
+  return closest;
+}
+
+function listTicks(db: Database, planId: number): void {
+  const ticks = loadCoachTicks(db, planId);
+  if (ticks.length === 0) {
+    console.log(`No coach ticks stored for plan ${planId}.`);
+    return;
+  }
+
+  console.log(`Coach ticks for plan ${planId} (${ticks.length} total):`);
+  console.log("-".repeat(80));
+  for (const tick of ticks) {
+    const elapsed = formatElapsed(tick.elapsed_s * 1000);
+    const msg = tick.response_message
+      ? `"${tick.response_message.length > 60 ? tick.response_message.slice(0, 60) + "..." : tick.response_message}"`
+      : "(no response)";
+    const latency = tick.latency_ms !== null ? `${tick.latency_ms}ms` : "---";
+    const targets = tick.response_power !== null
+      ? `${tick.response_power}W ${tick.response_cadence}rpm`
+      : "---";
+    console.log(`  ${elapsed}  ${latency}  ${targets}  ${msg}`);
+  }
+  console.log();
+  console.log("Usage: bun scripts/replay.ts <plan_id> <MM:SS> [--call]");
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -445,6 +527,20 @@ async function main() {
   if (isNaN(planId)) {
     console.error(`Invalid plan ID: ${args[0]}`);
     process.exit(1);
+  }
+
+  // --ticks mode: list all tick timestamps for a plan
+  if (args.includes("--ticks")) {
+    const db = openDb();
+    const plan = db.query("SELECT * FROM plans WHERE id = ?").get(planId) as PlanRow | null;
+    if (!plan) {
+      console.error(`Plan ${planId} not found.`);
+      db.close();
+      process.exit(1);
+    }
+    listTicks(db, planId);
+    db.close();
+    return;
   }
 
   // Parse time offset
@@ -477,7 +573,13 @@ async function main() {
   const allSamples = db.query(
     "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
   ).all(planId) as SampleRow[];
+
+  // Load coach ticks
+  const ticks = loadCoachTicks(db, planId);
   db.close();
+
+  const elapsedS = offsetMs / 1000;
+  const closestTick = findClosestTick(ticks, elapsedS);
 
   const firstTimestamp = allSamples.length > 0 ? allSamples[0].timestamp_ms : 0;
   const cutoffTimestamp = firstTimestamp + offsetMs;
@@ -495,15 +597,48 @@ async function main() {
     const spanMs = allSamples[allSamples.length - 1].timestamp_ms - allSamples[0].timestamp_ms;
     console.log(`  Actual workout duration: ${formatDuration(spanMs)}`);
   }
+  console.log(`  Stored coach ticks: ${ticks.length}`);
   console.log();
 
-  // Sections we cannot reconstruct
-  console.log("NOTE: The following sections cannot be reconstructed from DB data:");
-  console.log("  - Recent Coach Messages (not stored)");
-  console.log("  - Coach Notes (not stored)");
-  console.log("  - Current Targets (not stored)");
-  console.log("  Placeholders are shown in their place.");
-  console.log();
+  // Show stored tick data if available
+  if (closestTick) {
+    const tickElapsed = formatElapsed(closestTick.elapsed_s * 1000);
+    const dist = Math.abs(closestTick.elapsed_s - elapsedS);
+    console.log("=".repeat(80));
+    console.log(`STORED COACH TICK at ${tickElapsed} (${dist < 0.5 ? "exact" : `${dist.toFixed(1)}s away`})`);
+    console.log("=".repeat(80));
+    console.log();
+
+    // Show the actual user message that was sent
+    console.log("--- ACTUAL USER MESSAGE (from DB) ---");
+    console.log(closestTick.user_message);
+    console.log("--- END ACTUAL USER MESSAGE ---");
+    console.log();
+
+    // Show the actual coach response
+    console.log("--- ACTUAL COACH RESPONSE ---");
+    if (closestTick.response_message !== null) {
+      console.log(`  message:  "${closestTick.response_message}"`);
+      console.log(`  power:    ${closestTick.response_power}W`);
+      console.log(`  cadence:  ${closestTick.response_cadence}rpm`);
+      console.log(`  note:     ${closestTick.response_note ?? "(none)"}`);
+      console.log(`  latency:  ${closestTick.latency_ms ?? "---"}ms`);
+    } else {
+      console.log("  (API call failed -- no response)");
+      console.log(`  latency:  ${closestTick.latency_ms ?? "---"}ms`);
+    }
+    console.log("--- END ACTUAL COACH RESPONSE ---");
+    console.log();
+  } else {
+    // No stored ticks -- fall back to reconstruction
+    console.log("NOTE: No stored coach ticks for this plan. Falling back to reconstruction.");
+    console.log("  The following sections cannot be reconstructed from DB data:");
+    console.log("  - Recent Coach Messages (not stored)");
+    console.log("  - Coach Notes (not stored)");
+    console.log("  - Current Targets (not stored)");
+    console.log("  Placeholders are shown in their place.");
+    console.log();
+  }
 
   // Build system prompt
   const systemPrompt = buildCoachingSystemPrompt();
@@ -511,8 +646,10 @@ async function main() {
   // Build zones (uses current DB state, same as a live workout would at start)
   const zonesText = getZonesText();
 
-  // Build user message
-  const userMessage = buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText);
+  // Build reconstructed user message (always shown for comparison / --call use)
+  const userMessage = closestTick
+    ? closestTick.user_message
+    : buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText);
 
   // Print system prompt
   console.log("=".repeat(80));
@@ -522,9 +659,9 @@ async function main() {
   console.log(systemPrompt);
   console.log();
 
-  // Print user message
+  // Print user message (actual from tick or reconstructed)
   console.log("=".repeat(80));
-  console.log("USER MESSAGE");
+  console.log(closestTick ? "USER MESSAGE (from stored tick)" : "USER MESSAGE (reconstructed)");
   console.log("=".repeat(80));
   console.log();
   console.log(userMessage);
