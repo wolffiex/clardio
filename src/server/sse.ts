@@ -45,6 +45,18 @@ export function handleSSE(req: Request): Response {
         encoder.encode(formatSSE("connected", { timestamp: Date.now() }))
       );
 
+      // Keepalive: send a comment every 15s to prevent connection timeout.
+      // SSE comment lines (starting with ':') are ignored by EventSource
+      // but keep the TCP connection alive through proxies and firewalls.
+      const keepaliveTimer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(": keepalive\n\n"));
+        } catch {
+          // Stream closed, cleanup will happen via abort handler
+          clearInterval(keepaliveTimer);
+        }
+      }, 15_000);
+
       // Handler for broadcast events
       const handler = (eventType: string, data: unknown) => {
         try {
@@ -58,6 +70,7 @@ export function handleSSE(req: Request): Response {
 
       // Clean up on abort
       req.signal.addEventListener("abort", () => {
+        clearInterval(keepaliveTimer);
         emitter.off("broadcast", handler);
         clientCount--;
         log(`SSE client disconnected (total: ${clientCount})`);

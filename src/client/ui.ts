@@ -87,6 +87,9 @@ export class UIController {
   }
 
   startTimer(offsetSeconds: number = 0): void {
+    // Guard against duplicate timers from SSE reconnects.
+    // If a timer is already running, keep it (preserves elapsed time).
+    if (this.timerInterval) return;
     this.timerStart = Date.now() - offsetSeconds * 1000;
     this.updateTimerDisplay();
     this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
