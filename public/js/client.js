@@ -172,6 +172,8 @@ class UIController {
     };
   }
   startTimer(offsetSeconds = 0) {
+    if (this.timerInterval)
+      return;
     this.timerStart = Date.now() - offsetSeconds * 1000;
     this.updateTimerDisplay();
     this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
@@ -403,6 +405,24 @@ class TimelineController {
 }
 
 // src/client/main.ts
+var wakeLock = null;
+async function requestWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    console.log("[WakeLock] Acquired");
+    wakeLock.addEventListener("release", () => {
+      console.log("[WakeLock] Released");
+    });
+  } catch (err) {
+    console.log("[WakeLock] Failed:", err);
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    requestWakeLock();
+  }
+});
+requestWakeLock();
 var sse = new SSEClient;
 var ui = new UIController;
 var timeline2 = new TimelineController;

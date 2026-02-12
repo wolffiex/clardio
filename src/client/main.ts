@@ -4,6 +4,29 @@ import { handlePlan, initTimeline } from "./handlers";
 import { TimelineController } from "./timeline";
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 
+// Screen Wake Lock - prevent device from sleeping during workout
+let wakeLock: WakeLockSentinel | null = null;
+
+async function requestWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    console.log('[WakeLock] Acquired');
+    wakeLock.addEventListener('release', () => {
+      console.log('[WakeLock] Released');
+    });
+  } catch (err) {
+    console.log('[WakeLock] Failed:', err);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    requestWakeLock();
+  }
+});
+
+requestWakeLock();
+
 // Initialize
 const sse = new SSEClient();
 const ui = new UIController();
