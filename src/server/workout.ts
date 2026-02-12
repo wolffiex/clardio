@@ -21,7 +21,7 @@ import { savePlan, getRecentPlans, saveSample, saveCoachTick } from "./db";
 import { broadcast } from "./sse";
 import { log } from "./log";
 import { loadReplayData, startReplay, stopReplay } from "./replay";
-import { replayPlanId, replaySpeed } from "./replay-config";
+import { replayPlanId, replaySpeed, isReplay } from "./replay-config";
 
 const COACH_INTERVAL_MS = 10_000;
 
@@ -175,8 +175,10 @@ export async function startWorkout(): Promise<void> {
     console.log(JSON.stringify(currentPlan, null, 2));
     console.log("--- End Full Plan ---");
 
-    // 3. Save plan to SQLite
-    currentPlanId = savePlan(JSON.stringify(currentPlan.phases));
+    // 3. Save plan to SQLite (skip in replay mode)
+    if (!isReplay) {
+      currentPlanId = savePlan(JSON.stringify(currentPlan.phases));
+    }
 
     // 3.5 Broadcast plan to SSE clients for timeline rendering
     broadcast("plan", {
@@ -220,8 +222,8 @@ export async function startWorkout(): Promise<void> {
       handleCoachResponse(response);
     }
 
-    // 5.5 Save initial coach tick
-    if (currentPlanId) {
+    // 5.5 Save initial coach tick (skip in replay mode)
+    if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
       saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
     }
@@ -291,8 +293,8 @@ export function addMetrics(metrics: {
 
   samples.push({ ...metrics, receivedAt: now });
 
-  // Save to SQLite (skip first sample since durationMs is 0)
-  if (currentPlanId && durationMs > 0) {
+  // Save to SQLite (skip first sample since durationMs is 0, skip in replay mode)
+  if (!isReplay && currentPlanId && durationMs > 0) {
     saveSample(
       currentPlanId,
       now,
@@ -346,15 +348,15 @@ async function onCoachTick(): Promise<void> {
       handleCoachResponse(response);
     }
 
-    // Save coach tick to DB
-    if (currentPlanId) {
+    // Save coach tick to DB (skip in replay mode)
+    if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
       saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
     }
   } catch (err) {
     console.error("Coach tick error:", err);
-    // Save failed tick to DB (response=null)
-    if (currentPlanId) {
+    // Save failed tick to DB (skip in replay mode)
+    if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
       saveCoachTick(currentPlanId, elapsedS, null, null, null);
     }

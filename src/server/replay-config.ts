@@ -9,6 +9,8 @@ export const replayPlanId: number | null =
     ? parseInt(process.argv[replayIdx + 1], 10)
     : null;
 
+export const isReplay: boolean = replayPlanId !== null;
+
 const speedIdx = process.argv.indexOf("--speed");
 export const replaySpeed: number =
   speedIdx !== -1 && process.argv[speedIdx + 1]
