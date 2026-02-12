@@ -380,58 +380,62 @@ function buildReplayUserMessage(
     }
   }
 
-  // Recent Metrics (last 30s relative to offset)
+  // Recent Metrics (15s avg with trend arrows, matching live format)
   sections.push("");
-  sections.push("## Recent Metrics (last 30s)");
-  const recentCutoff = cutoffTimestamp - 30_000;
-  const recentSamples = samplesUpToOffset.filter((s) => s.timestamp_ms >= recentCutoff);
+  sections.push("## Recent Metrics (15s avg)");
+  const currentCutoff = cutoffTimestamp - 15_000;
+  const currentSamples = samplesUpToOffset.filter((s) => s.timestamp_ms >= currentCutoff);
+  const previousCutoff = cutoffTimestamp - 30_000;
+  const previousSamples = samplesUpToOffset.filter(
+    (s) => s.timestamp_ms >= previousCutoff && s.timestamp_ms < currentCutoff
+  );
 
-  if (recentSamples.length > 0) {
-    const powers = recentSamples.filter((s) => s.power !== null).map((s) => s.power!);
-    const hrs = recentSamples.filter((s) => s.hr !== null).map((s) => s.hr!);
-    const cadences = recentSamples.filter((s) => s.cadence !== null).map((s) => s.cadence!);
-
+  if (currentSamples.length > 0) {
     const avg = (arr: number[]) =>
       Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
 
-    if (powers.length > 0) {
-      sections.push(
-        `Power: avg ${avg(powers)}W, range ${Math.min(...powers)}-${Math.max(...powers)}W`
-      );
-    }
-    if (hrs.length > 0) {
-      sections.push(
-        `HR: avg ${avg(hrs)}bpm, range ${Math.min(...hrs)}-${Math.max(...hrs)}bpm`
-      );
-    }
-    if (cadences.length > 0) {
-      sections.push(
-        `Cadence: avg ${avg(cadences)}rpm, range ${Math.min(...cadences)}-${Math.max(...cadences)}rpm`
-      );
+    const powers = currentSamples.filter((s) => s.power !== null).map((s) => s.power!);
+    const hrs = currentSamples.filter((s) => s.hr !== null && s.hr > 0).map((s) => s.hr!);
+    const cadences = currentSamples.filter((s) => s.cadence !== null).map((s) => s.cadence!);
+
+    const curPower = powers.length > 0 ? avg(powers) : 0;
+    const curHr = hrs.length > 0 ? avg(hrs) : 0;
+    const curCadence = cadences.length > 0 ? avg(cadences) : 0;
+
+    // Compute trend arrows by comparing current 15s to previous 15s
+    let powerTrend = "\u2192";
+    let hrTrend = "\u2192";
+    let cadenceTrend = "\u2192";
+
+    if (previousSamples.length > 0) {
+      const prevPowers = previousSamples.filter((s) => s.power !== null).map((s) => s.power!);
+      const prevHrs = previousSamples.filter((s) => s.hr !== null && s.hr > 0).map((s) => s.hr!);
+      const prevCadences = previousSamples.filter((s) => s.cadence !== null).map((s) => s.cadence!);
+
+      if (prevPowers.length > 0) {
+        const powerDiff = curPower - avg(prevPowers);
+        if (powerDiff > 10) powerTrend = "\u2191";
+        else if (powerDiff < -10) powerTrend = "\u2193";
+      }
+
+      if (prevHrs.length > 0) {
+        const hrDiff = curHr - avg(prevHrs);
+        if (hrDiff > 3) hrTrend = "\u2191";
+        else if (hrDiff < -3) hrTrend = "\u2193";
+      }
+
+      if (prevCadences.length > 0) {
+        const cadenceDiff = curCadence - avg(prevCadences);
+        if (cadenceDiff > 5) cadenceTrend = "\u2191";
+        else if (cadenceDiff < -5) cadenceTrend = "\u2193";
+      }
     }
 
-    // HR trend (last 45s)
-    const trendCutoff = cutoffTimestamp - 45_000;
-    const trendSamples = samplesUpToOffset.filter(
-      (s) => s.timestamp_ms >= trendCutoff && s.hr !== null && s.hr > 0
+    sections.push(
+      `Power ${curPower}W${powerTrend} | HR ${curHr}${hrTrend} | Cadence ${curCadence}${cadenceTrend}`
     );
-    if (trendSamples.length >= 2) {
-      const firstHr =
-        trendSamples.slice(0, 3).reduce((s, x) => s + x.hr!, 0) /
-        Math.min(3, trendSamples.length);
-      const lastHr =
-        trendSamples.slice(-3).reduce((s, x) => s + x.hr!, 0) /
-        Math.min(3, trendSamples.length);
-      const diff = lastHr - firstHr;
-      let trend = "heart rate steady";
-      if (diff > 10) trend = "heart rate climbing quickly";
-      else if (diff > 3) trend = "heart rate climbing";
-      else if (diff < -10) trend = "heart rate falling quickly";
-      else if (diff < -3) trend = "heart rate falling";
-      sections.push(`Trend: ${trend}`);
-    }
   } else {
-    sections.push("No samples in last 30s");
+    sections.push("No samples in last 15s");
   }
 
   // Status
