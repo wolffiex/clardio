@@ -323,12 +323,17 @@ class TimelineController {
   phaseName = "";
   targetHr = undefined;
   phaseMinDuration = undefined;
+  timerInterval = null;
+  syncRemaining = 0;
+  syncElapsed = 0;
+  syncTime = 0;
   constructor() {
     this.container = document.getElementById("timeline");
   }
   setPlan(phases) {
     this.phases = phases;
     this.currentPhaseIndex = -1;
+    this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
   }
@@ -340,10 +345,40 @@ class TimelineController {
     this.isRecovery = info.isRecovery ?? false;
     this.targetHr = info.targetHr;
     this.phaseMinDuration = info.phaseMinDuration;
+    this.syncTime = Date.now();
+    if (this.isRecovery) {
+      this.syncElapsed = info.phaseElapsed;
+      this.syncRemaining = 0;
+    } else {
+      this.syncRemaining = Math.max(0, info.phaseTotal - info.phaseElapsed);
+      this.syncElapsed = 0;
+    }
+    this.startTimer();
     this.render();
   }
   hasPlan() {
     return this.phases.length > 0;
+  }
+  clearTimer() {
+    if (this.timerInterval !== null) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+  startTimer() {
+    this.clearTimer();
+    this.timerInterval = setInterval(() => this.tickTimer(), 1000);
+  }
+  tickTimer() {
+    this.updateDetailLine();
+  }
+  getClientSeconds() {
+    const drift = (Date.now() - this.syncTime) / 1000;
+    if (this.isRecovery) {
+      return this.syncElapsed + drift;
+    } else {
+      return Math.max(0, this.syncRemaining - drift);
+    }
   }
   render() {
     if (this.phases.length === 0)
@@ -390,9 +425,15 @@ class TimelineController {
       </div>`;
     }).join("");
     this.container.innerHTML = `
-      <div class="mb-1 text-xs text-gray-400 font-mono truncate h-4">${detailHtml}</div>
+      <div id="timeline-detail" class="mb-1 text-sm text-gray-400 font-mono truncate h-5">${detailHtml}</div>
       <div class="flex gap-px h-7">${segmentsHtml}</div>
     `;
+  }
+  updateDetailLine() {
+    const el = document.getElementById("timeline-detail");
+    if (el) {
+      el.innerHTML = this.buildDetailLine();
+    }
   }
   buildDetailLine() {
     if (this.currentPhaseIndex < 0 || this.currentPhaseIndex >= this.phases.length) {
@@ -407,14 +448,8 @@ class TimelineController {
       if (hrTarget) {
         parts.push(`<span class="text-slate-300">HR ↓${hrTarget}</span>`);
       }
-      const elapsed = formatDuration(this.phaseElapsed);
-      const minDur = this.phaseMinDuration ?? phase.min_duration_s ?? 0;
-      const maxDur = this.phaseTotal;
-      if (minDur > 0 && maxDur > 0) {
-        parts.push(`<span class="text-gray-400">${elapsed} (${formatDuration(minDur)}–${formatDuration(maxDur)})</span>`);
-      } else {
-        parts.push(`<span class="text-gray-400">${elapsed} elapsed</span>`);
-      }
+      const clientElapsed = Math.floor(this.getClientSeconds());
+      parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(clientElapsed)}</span>`);
     } else {
       if (phase.zone) {
         parts.push(`<span class="text-gray-300">${phase.zone}</span>`);
@@ -426,9 +461,8 @@ class TimelineController {
         parts.push(`<span class="text-gray-500">${phase.position}</span>`);
       }
       if (this.phaseTotal > 0) {
-        const elapsed = formatDuration(this.phaseElapsed);
-        const total = formatDuration(this.phaseTotal);
-        parts.push(`<span class="text-gray-400">${elapsed} / ${total}</span>`);
+        const remaining = Math.floor(this.getClientSeconds());
+        parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(remaining)}</span>`);
       }
     }
     parts.push(`<span class="text-gray-600">${this.currentPhaseIndex + 1}/${this.phases.length}</span>`);
