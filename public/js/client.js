@@ -171,8 +171,8 @@ class UIController {
       connectionText: document.getElementById("connection-text")
     };
   }
-  startTimer() {
-    this.timerStart = Date.now();
+  startTimer(offsetSeconds = 0) {
+    this.timerStart = Date.now() - offsetSeconds * 1000;
     this.updateTimerDisplay();
     this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
   }
@@ -235,32 +235,30 @@ class UIController {
     this.renderProgressBar(this.cadence, this.targetCadence, CADENCE_MIN, CADENCE_MAX, CADENCE_GRACE_ZONE, CADENCE_MAX_DISTANCE, "rpm", this.elements.cadenceBarContainer, this.elements.cadenceBarFill, this.elements.cadenceTargetPointer, this.elements.cadenceTargetLabel, this.elements.cadenceValueLabel, this.elements.cadenceScaleLabels, this.elements.cadenceDelta);
   }
   renderProgressBar(value, target, min, max, graceZone, maxDistance, unit, barContainer, barFill, targetPointer, targetLabel, valueLabel, scaleLabels, delta) {
-    if (target === null) {
-      barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
-      targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white hidden";
-      targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums hidden";
-      valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums hidden";
-      scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1 hidden";
-      delta.className = "mt-2 text-center font-medium hidden";
-      return;
-    }
     const fillPercent = calculateFillPercent(value, min, max);
-    const targetPos = calculateFillPercent(target, min, max);
-    const color = getColorFromDistance(value, target, graceZone, maxDistance);
-    const diff = Math.round(value - target);
+    const color = target !== null ? getColorFromDistance(value, target, graceZone, maxDistance) : "rgb(107, 114, 128)";
     barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";
     barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
     barFill.style.backgroundColor = color;
+    const labelPosition = Math.max(20, Math.min(90, fillPercent));
+    valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums";
+    valueLabel.style.left = `${labelPosition}%`;
+    scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
+    if (target === null) {
+      targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white hidden";
+      targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums hidden";
+      delta.className = "mt-2 text-center font-medium hidden";
+      return;
+    }
+    const targetPos = calculateFillPercent(target, min, max);
+    const diff = Math.round(value - target);
     targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
     targetPointer.style.left = `${targetPos}%`;
     targetPointer.style.transform = "translateX(-50%)";
     targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums";
     targetLabel.style.left = `${targetPos}%`;
     targetLabel.textContent = `${target}${unit}`;
-    const labelPosition = Math.max(20, Math.min(90, fillPercent));
-    valueLabel.style.left = `${labelPosition}%`;
-    scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
     const maxDelta = unit === "W" ? 100 : 50;
     delta.className = "mt-2 text-center font-medium";
     delta.style.color = color;
@@ -414,7 +412,19 @@ var testMode = params.has("power") || params.has("target_power");
 if (testMode) {
   console.log("[App] Test mode enabled via URL params");
   ui.setConnectionStatus("connected");
-  ui.startTimer();
+  let timerOffset = 0;
+  const phaseIndexParam = params.get("phase_index");
+  const phaseElapsedParam = params.get("phase_elapsed");
+  if (phaseIndexParam !== null && phaseElapsedParam !== null) {
+    const pi = parseInt(phaseIndexParam);
+    const pe = parseInt(phaseElapsedParam);
+    const sampleDurations = [300, 300, 120, 180, 240, 60, 180, 300, 240, 120, 300];
+    for (let i = 0;i < pi && i < sampleDurations.length; i++) {
+      timerOffset += sampleDurations[i];
+    }
+    timerOffset += pe;
+  }
+  ui.startTimer(timerOffset);
   const message = params.get("message");
   if (message) {
     ui.updateCoach({ text: message });
@@ -451,9 +461,9 @@ if (testMode) {
   }
   const targetPower = params.get("target_power");
   const targetCadence = params.get("target_cadence");
-  if (targetPower && targetCadence) {
+  if (targetPower || targetCadence) {
     ui.updateTarget({
-      power: parseInt(targetPower),
+      power: targetPower ? parseInt(targetPower) : null,
       cadence: targetCadence,
       position: null
     });

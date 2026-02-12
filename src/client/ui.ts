@@ -86,8 +86,8 @@ export class UIController {
     };
   }
 
-  startTimer(): void {
-    this.timerStart = Date.now();
+  startTimer(offsetSeconds: number = 0): void {
+    this.timerStart = Date.now() - offsetSeconds * 1000;
     this.updateTimerDisplay();
     this.timerInterval = setInterval(() => this.updateTimerDisplay(), 1000);
   }
@@ -209,25 +209,35 @@ export class UIController {
     scaleLabels: HTMLElement,
     delta: HTMLElement
   ): void {
-    if (target === null) {
-      barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-hidden hidden";
-      targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white hidden";
-      targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums hidden";
-      valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums hidden";
-      scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1 hidden";
-      delta.className = "mt-2 text-center font-medium hidden";
-      return;
-    }
-
     const fillPercent = calculateFillPercent(value, min, max);
-    const targetPos = calculateFillPercent(target, min, max);
-    const color = getColorFromDistance(value, target, graceZone, maxDistance);
-    const diff = Math.round(value - target);
+    const color = target !== null
+      ? getColorFromDistance(value, target, graceZone, maxDistance)
+      : 'rgb(107, 114, 128)'; // gray-500 when no target
 
+    // Always show bar container and value label when we have a value
     barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";
     barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
     barFill.style.backgroundColor = color;
+
+    // Position value label above the fill line, clamped to 20-90% to avoid edge overlap
+    const labelPosition = Math.max(20, Math.min(90, fillPercent));
+    valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums";
+    valueLabel.style.left = `${labelPosition}%`;
+
+    // Show scale labels
+    scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
+
+    if (target === null) {
+      // No target: hide target pointer, label, and delta
+      targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white hidden";
+      targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums hidden";
+      delta.className = "mt-2 text-center font-medium hidden";
+      return;
+    }
+
+    const targetPos = calculateFillPercent(target, min, max);
+    const diff = Math.round(value - target);
 
     // Position target pointer
     targetPointer.className = "absolute top-0 bottom-0 w-0.5 bg-white";
@@ -238,14 +248,6 @@ export class UIController {
     targetLabel.className = "absolute -top-6 text-sm text-gray-400 tabular-nums";
     targetLabel.style.left = `${targetPos}%`;
     targetLabel.textContent = `${target}${unit}`;
-
-    // Position value label above the fill line, clamped to 20-90% to avoid edge overlap
-    // 20% minimum prevents overlap with POWER/CADENCE label on the left
-    const labelPosition = Math.max(20, Math.min(90, fillPercent));
-    valueLabel.style.left = `${labelPosition}%`;
-
-    // Show scale labels
-    scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
 
     // Delta text color based on distance
     // Cap delta display for huge values

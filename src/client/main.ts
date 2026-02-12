@@ -18,7 +18,22 @@ if (testMode) {
   // Test mode: use URL params instead of SSE
   console.log("[App] Test mode enabled via URL params");
   ui.setConnectionStatus("connected");
-  ui.startTimer();
+
+  // Compute a reasonable elapsed time from phase info
+  let timerOffset = 0;
+  const phaseIndexParam = params.get("phase_index");
+  const phaseElapsedParam = params.get("phase_elapsed");
+  if (phaseIndexParam !== null && phaseElapsedParam !== null) {
+    const pi = parseInt(phaseIndexParam);
+    const pe = parseInt(phaseElapsedParam);
+    // Sum durations of all phases before the current one
+    const sampleDurations = [300, 300, 120, 180, 240, 60, 180, 300, 240, 120, 300];
+    for (let i = 0; i < pi && i < sampleDurations.length; i++) {
+      timerOffset += sampleDurations[i];
+    }
+    timerOffset += pe;
+  }
+  ui.startTimer(timerOffset);
 
   const message = params.get("message");
   if (message) {
@@ -66,9 +81,9 @@ if (testMode) {
 
   const targetPower = params.get("target_power");
   const targetCadence = params.get("target_cadence");
-  if (targetPower && targetCadence) {
+  if (targetPower || targetCadence) {
     ui.updateTarget({
-      power: parseInt(targetPower),
+      power: targetPower ? parseInt(targetPower) : null,
       cadence: targetCadence,
       position: null,
     });
