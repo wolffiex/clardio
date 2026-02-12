@@ -437,7 +437,9 @@ function estimateFtpFromSessions(sessions: SessionSummary[]): number | null {
 function getMaxHrFromSessions(sessions: SessionSummary[]): number | null {
   const maxHrs = sessions.map((s) => s.maxHr).filter((hr) => hr > 0);
   if (maxHrs.length === 0) return null;
-  return Math.max(...maxHrs);
+  // Use the higher of observed max HR and DEFAULT_MAX_HR so that
+  // zones are not compressed by insufficient ride data
+  return Math.max(...maxHrs, DEFAULT_MAX_HR);
 }
 
 function buildRiderProfileFromDb(): string {

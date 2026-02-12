@@ -106,7 +106,7 @@ Rising +36 bpm over 5 min
 Power 192W\u2192 | HR 146\u2191 | Cadence 89\u2192
 
 ## Status
-Sweet Spot | Phase avg: 193W 145bpm 89rpm | Max HR: 152 | Elapsed: 15:40`;
+Phase avg: 193W 145bpm 89rpm | Max HR: 152 | Elapsed: 15:40`;
 
   console.log(sampleUserMessage);
   console.log();

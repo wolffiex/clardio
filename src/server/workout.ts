@@ -592,9 +592,6 @@ function buildUserMessage(isStart: boolean): string {
       ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
       : [];
 
-    const zonePart = statusPhase
-      ? (isRecoveryPhase(statusPhase) ? "Recovery" : statusPhase.zone)
-      : "---";
     if (phaseSamples.length > 0) {
       const avgPower = Math.round(
         phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
@@ -606,11 +603,11 @@ function buildUserMessage(isStart: boolean): string {
         phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
       );
       sections.push(
-        `${zonePart} | Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
       );
     } else {
       sections.push(
-        `${zonePart} | Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+        `Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
       );
     }
   } else {
