@@ -350,11 +350,13 @@ function buildUserMessage(isStart: boolean): string {
     const { currentPhase, phaseElapsed, phaseRemaining } =
       getCurrentPhaseInfo(elapsed);
 
-    // Full plan overview (compact)
+    // Plan overview (current + next 2 phases, with remaining count)
     sections.push("## Plan");
     sections.push(currentPlan.summary);
-    for (let i = 0; i < currentPlan.phases.length; i++) {
-      const phase = currentPlan.phases[i];
+    const planPhases = currentPlan.phases;
+    const visibleEnd = Math.min(currentPhaseIndex + 3, planPhases.length);
+    for (let i = currentPhaseIndex; i < visibleEnd; i++) {
+      const phase = planPhases[i];
       const marker = i === currentPhaseIndex ? "->" : "  ";
       if (isRecoveryPhase(phase)) {
         sections.push(
@@ -365,6 +367,10 @@ function buildUserMessage(isStart: boolean): string {
           `${marker} ${phase.name}: ${Math.round(phase.duration_s / 60)}min ${phase.zone} ${phase.position} ${phase.cadence}rpm`
         );
       }
+    }
+    const remainingAfterVisible = planPhases.length - visibleEnd;
+    if (remainingAfterVisible > 0) {
+      sections.push(`   (+${remainingAfterVisible} more phase${remainingAfterVisible === 1 ? "" : "s"})`);
     }
 
     // Zones (cached at workout start -- never recalculated mid-workout)

@@ -260,32 +260,56 @@ function buildReplayUserMessage(
   sections.push(`WORKOUT TIME: ${elapsedStr}`);
   sections.push("");
 
-  // Plan overview
+  // Plan overview (current + next 2 phases, with remaining count)
   sections.push("## Plan");
   sections.push(planSummary);
   const elapsedS = offsetMs / 1000;
   let accumulated = 0;
-  for (const phase of phases) {
-    const durationS = getPhaseDurationS(phase);
-    const marker =
-      accumulated <= elapsedS && elapsedS < accumulated + durationS
-        ? "->"
-        : "  ";
-    if (isRecoveryPhase(phase)) {
-      sections.push(
-        `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
-      );
-    } else {
-      const cadenceStr = typeof phase.cadence === "string"
-        ? phase.cadence
-        : `${(phase as any).cadence[0]}-${(phase as any).cadence[1]}`;
-      const zoneName = phase.zone;
-      const durationMin = Math.round(durationS / 60);
-      sections.push(
-        `${marker} ${phase.name}: ${durationMin}min ${zoneName} ${phase.position} ${cadenceStr}rpm`
-      );
+  let currentPhaseIdx = 0;
+  for (let i = 0; i < phases.length; i++) {
+    const durationS = getPhaseDurationS(phases[i]);
+    if (accumulated <= elapsedS && elapsedS < accumulated + durationS) {
+      currentPhaseIdx = i;
+      break;
     }
     accumulated += durationS;
+    if (i === phases.length - 1) currentPhaseIdx = phases.length; // past end
+  }
+  const visibleEnd = Math.min(currentPhaseIdx + 3, phases.length);
+  accumulated = 0;
+  for (let i = 0; i < phases.length; i++) {
+    accumulated += getPhaseDurationS(phases[i]);
+  }
+  // Recompute accumulated per-phase for display
+  let accum2 = 0;
+  for (let i = 0; i < phases.length; i++) {
+    const phase = phases[i];
+    const durationS = getPhaseDurationS(phase);
+    if (i >= currentPhaseIdx && i < visibleEnd) {
+      const marker =
+        accum2 <= elapsedS && elapsedS < accum2 + durationS
+          ? "->"
+          : "  ";
+      if (isRecoveryPhase(phase)) {
+        sections.push(
+          `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
+        );
+      } else {
+        const cadenceStr = typeof phase.cadence === "string"
+          ? phase.cadence
+          : `${(phase as any).cadence[0]}-${(phase as any).cadence[1]}`;
+        const zoneName = phase.zone;
+        const durationMin = Math.round(durationS / 60);
+        sections.push(
+          `${marker} ${phase.name}: ${durationMin}min ${zoneName} ${phase.position} ${cadenceStr}rpm`
+        );
+      }
+    }
+    accum2 += durationS;
+  }
+  const remainingAfterVisible = phases.length - visibleEnd;
+  if (remainingAfterVisible > 0) {
+    sections.push(`   (+${remainingAfterVisible} more phase${remainingAfterVisible === 1 ? "" : "s"})`);
   }
 
   // Zones
