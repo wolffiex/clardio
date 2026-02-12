@@ -907,6 +907,16 @@ Do not change power more than once every 3 ticks (30 seconds). When you set a po
 
 During recovery phases, keep power low (Z1). The phase advances automatically when HR drops below the target. You don't need to manage the transition.
 
+## Phase Transitions
+
+You do NOT control phase transitions. The system advances phases automatically.
+
+When a phase transition happens, you will see a ">>> NEW PHASE" marker in the Current Phase section. ONLY when you see this marker should you announce a new phase.
+
+During recovery phases, NEVER announce that the next interval is starting. NEVER say "HR crossed the line" or "gate is cleared." You do not know when the gate will clear — only the system does. If you see "HR approaching target," simply encourage the rider to stay easy. The system will advance when ready.
+
+If the Current Phase section says "Recovery," you are in recovery. Period. Do not override this based on your interpretation of HR data.
+
 ## Rules
 
 - HR is the primary signal. If HR is in the target zone, the workout is working regardless of exact watts. Adjust power targets to keep the rider in the phase's target HR zone.

@@ -360,14 +360,20 @@ function buildUserMessage(isStart: boolean): string {
       getCurrentPhaseInfo(elapsed);
 
     // Plan overview (current + next 2 phases, with remaining count)
+    // During recovery phases, hide next-phase details to prevent premature announcements
     sections.push("## Plan");
     sections.push(currentPlan.summary);
     const planPhases = currentPlan.phases;
+    const currentIsRecovery = isRecoveryPhase(planPhases[currentPhaseIndex]);
     const visibleEnd = Math.min(currentPhaseIndex + 3, planPhases.length);
     for (let i = currentPhaseIndex; i < visibleEnd; i++) {
       const phase = planPhases[i];
       const marker = i === currentPhaseIndex ? "->" : "  ";
-      if (isRecoveryPhase(phase)) {
+      if (i > currentPhaseIndex && currentIsRecovery) {
+        // During recovery, only show that more phases exist, not their details
+        sections.push(`${marker} (next phase begins when recovery conditions are met)`);
+        break; // Don't show any further phases
+      } else if (isRecoveryPhase(phase)) {
         sections.push(
           `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
         );
@@ -378,7 +384,7 @@ function buildUserMessage(isStart: boolean): string {
       }
     }
     const remainingAfterVisible = planPhases.length - visibleEnd;
-    if (remainingAfterVisible > 0) {
+    if (remainingAfterVisible > 0 && !currentIsRecovery) {
       sections.push(`   (+${remainingAfterVisible} more phase${remainingAfterVisible === 1 ? "" : "s"})`);
     }
 
@@ -388,7 +394,7 @@ function buildUserMessage(isStart: boolean): string {
     sections.push(cachedZonesText);
 
     sections.push("");
-    sections.push("## Current Phase");
+    sections.push("## Current Phase (AUTHORITATIVE — do not override)");
     if (currentPhase) {
       // Detect phase transition
       const isNewPhase = lastPhaseName !== null && currentPhase.name !== lastPhaseName;
