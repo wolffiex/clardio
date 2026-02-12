@@ -118,6 +118,8 @@ src/server/coach.ts        # Anthropic SDK calls (planWorkout, sendCoachMessage)
 src/server/coach-prompt.ts # All prompts, schemas, rider profile, zone calculations
 src/server/db.ts           # SQLite database (plans + samples tables)
 src/server/sensor-process.ts # Spawns/kills Python sensor bridge subprocess
+src/server/replay.ts       # Replay mode: plays back recorded sessions
+src/server/replay-config.ts # Replay CLI flag parsing (--replay, --speed)
 src/server/log.ts          # Server logging
 src/client/main.ts         # Browser entry point
 src/client/sse-client.ts   # SSE event handling
@@ -234,3 +236,22 @@ URL params for test mode:
 - `power2`, `cadence2` - Second update for testing transitions
 
 The test mode bypasses SSE entirely - the client reads URL params on load and renders immediately.
+
+## Replay Mode
+
+Replay a recorded session's sensor data with fresh coaching. Useful for testing prompt changes against historical rides without needing the bike.
+
+```bash
+bun run dev --replay 4        # replay plan 4 at 1x speed
+bun run dev --replay 4 --speed 2  # replay at 2x (halves all timing)
+bun run dev --replay 4 --speed 10 # fast-forward at 10x
+```
+
+How it works:
+- Loads the plan and sensor samples from the **production** DB (`~/.clardio/clardio.db`)
+- Reuses the original plan (phases, zones, timing) from that session
+- Feeds sensor data through the normal pipeline at original timing intervals, divided by speed factor
+- Coaching runs fresh with current prompts (real API calls to Claude every 10s / speed)
+- New coaching data is saved to the **dev** DB (`~/.clardio/clardio-dev.db`)
+- Sensor bridge is not started (data comes from the replay)
+- Open the browser to `http://localhost:3000` to see the UI update in real time

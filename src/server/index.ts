@@ -4,12 +4,16 @@ import { handleMetrics, handleTag } from "./routes";
 import { join } from "node:path";
 import { log } from "./log";
 import { setDevMode } from "./db";
+import { replayPlanId, replaySpeed } from "./replay-config";
 
 const PUBLIC_DIR = join(import.meta.dir, "../../public");
 
 // Parse command-line flags
 const noBridge = process.argv.includes("--no-bridge");
-const isDev = process.argv.includes("--hot") || noBridge;
+
+// Replay implies dev mode (don't pollute production DB with replayed data)
+const isReplay = replayPlanId !== null;
+const isDev = process.argv.includes("--hot") || noBridge || isReplay;
 setDevMode(isDev);
 
 export function createServer(port: number = 0): Server {
@@ -65,9 +69,13 @@ export { broadcast };
 
 // Run server if this file is executed directly
 if (import.meta.main) {
-  if (noBridge) {
+  if (noBridge || isReplay) {
     setBridgeEnabled(false);
-    log("Sensor bridge disabled, using simulator mode");
+    if (isReplay) {
+      log(`Replay mode: plan ${replayPlanId} at ${replaySpeed}x speed`);
+    } else {
+      log("Sensor bridge disabled, using simulator mode");
+    }
   }
   const dbName = isDev ? "clardio-dev.db" : "clardio.db";
   const dbLabel = isDev ? "development" : "production";

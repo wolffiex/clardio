@@ -91,6 +91,39 @@ export function closeDb(): void {
   }
 }
 
+/**
+ * Open the PRODUCTION database (read-only).
+ * Used by replay mode to load recorded sessions while dev DB is active.
+ */
+export function getProductionDb(): Database {
+  const prodPath = join(DB_DIR, "clardio.db");
+  const prodDb = new Database(prodPath, { readonly: true });
+  return prodDb;
+}
+
+/**
+ * Get a plan by ID from a specific database instance.
+ */
+export function getPlanById(planId: number, fromDb?: Database): PlanRow | null {
+  const d = fromDb ?? getDb();
+  return (d.query("SELECT * FROM plans WHERE id = ?").get(planId) as PlanRow) ?? null;
+}
+
+/**
+ * Get samples for a plan from a specific database instance.
+ */
+export function getSamplesForPlanFrom(planId: number, fromDb: Database): Array<{
+  timestamp_ms: number;
+  duration_ms: number;
+  power: number | null;
+  hr: number | null;
+  cadence: number | null;
+}> {
+  return fromDb.query(
+    "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
+  ).all(planId) as any[];
+}
+
 export type PlanRow = {
   id: number;
   created_at: string;

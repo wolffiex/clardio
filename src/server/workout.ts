@@ -20,6 +20,8 @@ import { planWorkout, sendCoachMessage } from "./coach";
 import { savePlan, getRecentPlans, saveSample, saveCoachTick } from "./db";
 import { broadcast } from "./sse";
 import { log } from "./log";
+import { loadReplayData, startReplay, stopReplay } from "./replay";
+import { replayPlanId, replaySpeed } from "./replay-config";
 
 const COACH_INTERVAL_MS = 10_000;
 
@@ -102,41 +104,60 @@ export async function startWorkout(): Promise<void> {
   currentPlan = null;
   currentPlanId = null;
 
+  // Replay data loaded outside try so it's available for the replay start below
+  let replayData: ReturnType<typeof loadReplayData> = null;
+
   try {
     // 0. Cache zones BEFORE any samples are saved (avoids warmup data polluting zones)
     cachedZonesText = getZonesText();
     cachedZonePowerRanges = getZonePowerRanges();
 
-    // 1. Build planning prompts (static system + dynamic user)
-    const recentPlans = getRecentPlans(5);
-    const previousPlansText =
-      recentPlans.length === 0
-        ? "No previous plans."
-        : recentPlans
-            .map((p) => {
-              const phases = JSON.parse(p.phases);
-              const phaseNames = phases
-                .map((ph: Phase) => ph.name)
-                .join(", ");
-              return `${p.created_at}: ${phaseNames}${p.summary ? ` — ${p.summary}` : ""}`;
-            })
-            .join("\n");
+    if (replayPlanId !== null) {
+      // --- REPLAY MODE: load plan + samples from production DB ---
+      replayData = loadReplayData(replayPlanId);
+      if (!replayData) {
+        throw new Error(`Replay: plan ${replayPlanId} not found or has no samples`);
+      }
 
-    const planningSystemPrompt = buildPlanningSystemPrompt();
-    const planningUserPrompt = buildPlanningUserPrompt(previousPlansText);
+      const phases: Phase[] = JSON.parse(replayData.plan.phases);
+      currentPlan = {
+        summary: replayData.plan.summary ?? `Replay of plan ${replayPlanId}`,
+        phases,
+      };
+      log(`[replay] Using plan: ${currentPlan.summary}`);
+    } else {
+      // --- NORMAL MODE: generate fresh plan ---
+      // 1. Build planning prompts (static system + dynamic user)
+      const recentPlans = getRecentPlans(5);
+      const previousPlansText =
+        recentPlans.length === 0
+          ? "No previous plans."
+          : recentPlans
+              .map((p) => {
+                const phases = JSON.parse(p.phases);
+                const phaseNames = phases
+                  .map((ph: Phase) => ph.name)
+                  .join(", ");
+                return `${p.created_at}: ${phaseNames}${p.summary ? ` — ${p.summary}` : ""}`;
+              })
+              .join("\n");
 
-    // 2. Call Opus to generate the plan
-    console.log("--- Planning System Prompt ---");
-    console.log(planningSystemPrompt);
-    console.log("--- End Planning System Prompt ---");
-    console.log("--- Planning User Prompt ---");
-    console.log(planningUserPrompt);
-    console.log("--- End Planning User Prompt ---");
+      const planningSystemPrompt = buildPlanningSystemPrompt();
+      const planningUserPrompt = buildPlanningUserPrompt(previousPlansText);
 
-    log("Generating workout plan...");
-    const planStart = Date.now();
-    currentPlan = await planWorkout(planningSystemPrompt, planningUserPrompt);
-    console.log(`Plan generated in ${Date.now() - planStart}ms`);
+      // 2. Call Opus to generate the plan
+      console.log("--- Planning System Prompt ---");
+      console.log(planningSystemPrompt);
+      console.log("--- End Planning System Prompt ---");
+      console.log("--- Planning User Prompt ---");
+      console.log(planningUserPrompt);
+      console.log("--- End Planning User Prompt ---");
+
+      log("Generating workout plan...");
+      const planStart = Date.now();
+      currentPlan = await planWorkout(planningSystemPrompt, planningUserPrompt);
+      console.log(`Plan generated in ${Date.now() - planStart}ms`);
+    }
     log(`Plan: ${currentPlan.summary}`);
     log(
       `Phases: ${currentPlan.phases.map((p) => {
@@ -205,8 +226,16 @@ export async function startWorkout(): Promise<void> {
       saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
     }
 
-    // 6. Start the 10-second coaching loop
-    coachTimer = setInterval(onCoachTick, COACH_INTERVAL_MS);
+    // 6. Start the 10-second coaching loop (adjusted by replay speed)
+    const coachIntervalMs = replayPlanId !== null
+      ? COACH_INTERVAL_MS / replaySpeed
+      : COACH_INTERVAL_MS;
+    coachTimer = setInterval(onCoachTick, coachIntervalMs);
+
+    // 7. If replay mode, start feeding samples
+    if (replayPlanId !== null && replayData) {
+      startReplay(replayData.samples, replaySpeed);
+    }
   } catch (err) {
     console.error("Failed to start workout:", err);
     workoutActive = false;
@@ -224,6 +253,9 @@ export function stopWorkout(): void {
     clearInterval(coachTimer);
     coachTimer = null;
   }
+
+  // Stop replay if active
+  stopReplay();
 
   log("Workout stopped.");
 
