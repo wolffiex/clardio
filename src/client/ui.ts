@@ -37,14 +37,12 @@ interface UIElements {
   powerBarFill: HTMLElement;
   powerTargetPointer: HTMLElement;
   powerTargetLabel: HTMLElement;
-  powerValueLabel: HTMLElement;
   powerScaleLabels: HTMLElement;
   powerDelta: HTMLElement;
   cadenceBarContainer: HTMLElement;
   cadenceBarFill: HTMLElement;
   cadenceTargetPointer: HTMLElement;
   cadenceTargetLabel: HTMLElement;
-  cadenceValueLabel: HTMLElement;
   cadenceScaleLabels: HTMLElement;
   cadenceDelta: HTMLElement;
   connectionDot: HTMLElement;
@@ -71,14 +69,12 @@ export class UIController {
       powerBarFill: document.getElementById("power-bar-fill")!,
       powerTargetPointer: document.getElementById("power-target-pointer")!,
       powerTargetLabel: document.getElementById("power-target-label")!,
-      powerValueLabel: document.getElementById("power-value-label")!,
       powerScaleLabels: document.getElementById("power-scale-labels")!,
       powerDelta: document.getElementById("power-delta")!,
       cadenceBarContainer: document.getElementById("cadence-bar-container")!,
       cadenceBarFill: document.getElementById("cadence-bar-fill")!,
       cadenceTargetPointer: document.getElementById("cadence-target-pointer")!,
       cadenceTargetLabel: document.getElementById("cadence-target-label")!,
-      cadenceValueLabel: document.getElementById("cadence-value-label")!,
       cadenceScaleLabels: document.getElementById("cadence-scale-labels")!,
       cadenceDelta: document.getElementById("cadence-delta")!,
       connectionDot: document.getElementById("connection-dot")!,
@@ -176,7 +172,6 @@ export class UIController {
       this.elements.powerBarFill,
       this.elements.powerTargetPointer,
       this.elements.powerTargetLabel,
-      this.elements.powerValueLabel,
       this.elements.powerScaleLabels,
       this.elements.powerDelta
     );
@@ -192,7 +187,6 @@ export class UIController {
       this.elements.cadenceBarFill,
       this.elements.cadenceTargetPointer,
       this.elements.cadenceTargetLabel,
-      this.elements.cadenceValueLabel,
       this.elements.cadenceScaleLabels,
       this.elements.cadenceDelta
     );
@@ -210,7 +204,6 @@ export class UIController {
     barFill: HTMLElement,
     targetPointer: HTMLElement,
     targetLabel: HTMLElement,
-    valueLabel: HTMLElement,
     scaleLabels: HTMLElement,
     delta: HTMLElement
   ): void {
@@ -219,16 +212,11 @@ export class UIController {
       ? getColorFromDistance(value, target, graceZone, maxDistance)
       : 'rgb(107, 114, 128)'; // gray-500 when no target
 
-    // Always show bar container and value label when we have a value
+    // Always show bar container when we have a value
     barContainer.className = "relative h-8 bg-gray-900 rounded-full overflow-visible";
     barFill.className = "absolute inset-y-0 left-0 rounded-full transition-all duration-300";
     barFill.style.width = `${fillPercent}%`;
     barFill.style.backgroundColor = color;
-
-    // Position value label above the fill line, clamped to 20-90% to avoid edge overlap
-    const labelPosition = Math.max(20, Math.min(90, fillPercent));
-    valueLabel.className = "absolute -top-10 text-3xl font-bold text-white tabular-nums";
-    valueLabel.style.left = `${labelPosition}%`;
 
     // Show scale labels
     scaleLabels.className = "flex justify-between text-sm text-gray-500 mt-1";
