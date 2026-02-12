@@ -51,6 +51,9 @@ const MAX_COACH_HISTORY = 10;
 let lastPhaseName: string | null = null;
 let lastPhasePosition: string | null = null;
 
+// Form cue rotation: cycles through cues one per tick, resets on phase change
+let formCueIndex: number = 0;
+
 // Phase tracking for dynamic (recovery) phases
 let currentPhaseIndex: number = 0;
 let phaseStartTimes: number[] = []; // ms timestamp when each phase started
@@ -95,6 +98,7 @@ export async function startWorkout(): Promise<void> {
   tickLatencies = [];
   lastPhaseName = null;
   lastPhasePosition = null;
+  formCueIndex = 0;
   currentPhaseIndex = 0;
   phaseStartTimes = [];
   lastPowerChangeTime = 0;
@@ -275,6 +279,7 @@ export function stopWorkout(): void {
   lastPowerChangeTime = 0;
   currentPowerTarget = null;
   recoveryGateClearedAt = null;
+  formCueIndex = 0;
 }
 
 /**
@@ -537,7 +542,15 @@ function buildUserMessage(isStart: boolean): string {
 
       const cues = isRecoveryPhase(currentPhase) ? undefined : currentPhase.form_cues;
       if (cues && cues.length > 0) {
-        sections.push(`Cues: ${cues.join(", ")}`);
+        // Reset cue index on phase change
+        if (lastPhaseName !== null && currentPhase.name !== lastPhaseName) {
+          formCueIndex = 0;
+        }
+        // Show one cue at a time, rotating through the list
+        const cueIdx = formCueIndex % cues.length;
+        sections.push(`Cue: ${cues[cueIdx]}`);
+        sections.push(`(${cueIdx + 1} of ${cues.length} phase cues)`);
+        formCueIndex++;
       }
 
       // Update tracking state after building the message

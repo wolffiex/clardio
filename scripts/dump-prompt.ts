@@ -85,7 +85,8 @@ Sweet Spot Block 1 | Sweet Spot | seated | 85-95rpm
 ${ssPowerRange}
 Phase time: 3:20 elapsed, 4:40 remaining
 HR target: 140-150 (informational)
-Cues: smooth circles, drop heels, quiet hips, rhythmic breathing
+Cue: drop heels at bottom of stroke
+(2 of 4 phase cues)
 
 ## Current Target
 Power: 195W

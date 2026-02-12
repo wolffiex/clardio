@@ -846,11 +846,21 @@ Include standing efforts during appropriate phases (surges, climbing intervals, 
 
 ## Form Cues
 
-Include 2-4 form cues per phase, drawn from:
-- **Posture:** drop shoulders, unclench jaw, long spine, head up, soft elbows, light hands, hips back
-- **Pedaling:** smooth circles, pull up, drop heels, quiet hips, knees forward
-- **Breathing:** deep belly breaths, exhale on downstroke, rhythmic breathing
-- **Recovery:** shake out hands, roll neck, relax face
+Include 2-4 form cues per phase. Be specific and varied — avoid repeating the same cues across phases. Examples include but are not limited to:
+
+**Posture:** drop shoulders away from ears, unclench jaw, long spine tall through crown, soft elbows slightly bent, light hands relaxed grip, hips back on saddle, sit bones centered, stack shoulders over hips, hinge from hip crease not waist, neutral wrist position, tuck chin slightly, engage lats to stabilize upper body
+
+**Breathing:** deep belly breaths expand on inhale, exhale on the downstroke, rhythmic breathing matched to cadence, nasal breathing during recovery, exhale through pursed lips at high intensity, box breathing during recovery (inhale-hold-exhale-hold)
+
+**Pedaling:** smooth circles not pistons, pull through at 6 o'clock, drop heels at bottom of stroke, quiet hips no rocking, knees tracking straight forward, weight through big toe, lighten the dead spot at top, scrape mud off shoe at bottom, push knees slightly inward
+
+**Standing:** shift weight back as you rise, lead with hips not shoulders, let arms absorb the bike motion, light grip let the bike sway naturally, drive forward with hips each stroke
+
+**Fatigue management:** if shoulders creep up reset them, check jaw tension and release, wiggle fingers to release grip, shift hand position on bars, stand briefly to reset posture, shake out one hand then the other
+
+**Recovery:** shake out hands one at a time, roll neck gently side to side, unclench everything — jaw hands shoulders, deep slow breaths let HR settle
+
+Vary your selections across phases and across workouts. Do not default to the same set every time.
 
 Time cues appropriately: recovery intervals (mental bandwidth available), ragged effort (bouncing, power fluctuating), periodic reminders. Never during max efforts.
 
@@ -863,11 +873,13 @@ Design a 45-minute workout. Vary the format from previous plans shown above. Spe
 
 /**
  * Dynamic planning user prompt. Changes based on DB state.
- * Contains rider profile, training zones, previous plans.
+ * Contains rider profile, training zones, previous plans, and recent cues to avoid.
  */
 export function buildPlanningUserPrompt(previousPlans: string): string {
   const { riderProfile, zones } = loadRiderData();
   const trainingZonesSection = generateTrainingZonesSection(zones);
+
+  const previousCuesSection = buildPreviousCuesSection();
 
   return `${riderProfile}
 
@@ -876,8 +888,44 @@ ${trainingZonesSection}
 ## Previous Plans
 
 ${previousPlans}
+${previousCuesSection}
 
 Design today's workout.`;
+}
+
+/**
+ * Extract form cues from the most recent plan in the DB so the planner
+ * can avoid repeating the same cues.
+ */
+function buildPreviousCuesSection(): string {
+  const db = getDb();
+
+  // Get the most recent plan that has phases with form cues
+  const recentPlan = db
+    .query("SELECT id, created_at, phases FROM plans ORDER BY created_at DESC LIMIT 1")
+    .get() as { id: number; created_at: string; phases: string } | null;
+
+  if (!recentPlan) return "";
+
+  try {
+    const phases = JSON.parse(recentPlan.phases) as Phase[];
+    const allCues: string[] = [];
+    for (const phase of phases) {
+      if (!isRecoveryPhase(phase) && phase.form_cues) {
+        allCues.push(...phase.form_cues);
+      }
+    }
+
+    if (allCues.length === 0) return "";
+
+    const date = new Date(recentPlan.created_at + "Z");
+    const dateStr = date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const cueList = allCues.map((c) => `"${c}"`).join(", ");
+
+    return `\n## Previous Workout Cues (avoid repeating)\nPlan from ${dateStr}: ${cueList}`;
+  } catch {
+    return "";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -923,7 +971,12 @@ If the Current Phase section says "Recovery," you are in recovery. Period. Do no
 
 - HR is the primary signal. If HR is in the target zone, the workout is working regardless of exact watts. Adjust power targets to keep the rider in the phase's target HR zone.
 - HR targets in the plan are informational. Do not chase HR zone boundaries by escalating power. If HR is rising toward the target, the current power is working -- wait.
-- When the rider is on target, deliver a form cue from the current phase's cue list.
+- When the rider is on target, deliver the current form cue shown in the data (labeled "Cue:"). The cue rotates automatically each tick.
+- When delivering form cues:
+  - Use each cue from the phase list at most once. After you've delivered all of them, move on — do not cycle back.
+  - Do not default to "stay smooth" or "keep it smooth" as filler. Be specific or say nothing.
+  - If the rider is on target and you've covered all form cues, a brief observation or silence is better than repeating yourself.
+  - Vary your coaching angle: form, breathing, rhythm, motivation, observation. Don't get stuck on one.
 - Keep messages to one or two sentences. The rider is working hard and cannot read paragraphs.
 - NEVER quote specific numbers to the rider. Not watts, not BPM, not RPM, not percentages, not zone numbers, not time durations. The rider sees all metrics on screen in real time. Your message arrives 2-3 seconds late, so any number you quote is already stale and wrong. Describe trends and directions, not values.
   When HR is approaching a zone threshold, describe it qualitatively:
