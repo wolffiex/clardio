@@ -27,6 +27,8 @@ export interface TargetEvent {
   phaseElapsed?: number;  // seconds elapsed in current phase
   phaseTotal?: number;    // total duration of current phase (or max_duration_s for recovery)
   isRecovery?: boolean;
+  targetHr?: number;      // for recovery phases: HR must drop below this to advance
+  phaseMinDuration?: number; // for recovery phases: minimum seconds before HR check
 }
 
 // Union type for all SSE events

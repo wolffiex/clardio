@@ -16,6 +16,7 @@ export interface PlanPhase {
   type?: string;
   min_duration_s?: number;
   max_duration_s?: number;
+  target_hr?: number;
   position?: string;
   cadence?: string;
 }
@@ -26,6 +27,8 @@ export interface PhaseInfo {
   phaseElapsed: number; // seconds
   phaseTotal: number;   // seconds
   isRecovery?: boolean;
+  targetHr?: number;       // HR threshold for recovery phases
+  phaseMinDuration?: number; // minimum seconds for recovery phases
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,8 @@ export class TimelineController {
   private phaseTotal: number = 0;
   private isRecovery: boolean = false;
   private phaseName: string = "";
+  private targetHr: number | undefined = undefined;
+  private phaseMinDuration: number | undefined = undefined;
 
   constructor() {
     this.container = document.getElementById("timeline")!;
@@ -112,6 +117,8 @@ export class TimelineController {
     this.phaseElapsed = info.phaseElapsed;
     this.phaseTotal = info.phaseTotal;
     this.isRecovery = info.isRecovery ?? false;
+    this.targetHr = info.targetHr;
+    this.phaseMinDuration = info.phaseMinDuration;
     this.render();
   }
 
@@ -152,19 +159,34 @@ export class TimelineController {
         bgClass = `${color.dimmed} opacity-40`;
       }
 
-      // Label: zone or "Rec" for recovery. Show name too if there's room.
-      const zone = phase.type === "recovery" ? "Rec" : (phase.zone ?? "");
+      // Label: zone or heart-arrow for recovery. Show name too if there's room.
+      const isRecoveryPhase = phase.type === "recovery";
+      const zone = isRecoveryPhase ? "\u2665\u2193" : (phase.zone ?? "");
       const showName = widthPercent > 8;
       const nameAbbrev = showName ? abbreviateName(phase.name, widthPercent > 15 ? 12 : 6) : "";
 
       // Progress fill within current phase
       let progressHtml = "";
       if (isCurrent && this.phaseTotal > 0) {
-        const progressPercent = Math.min(100, (this.phaseElapsed / this.phaseTotal) * 100);
-        progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
+        if (this.isRecovery) {
+          // Recovery: show min-duration mark and pulsing fill
+          const minDur = this.phaseMinDuration ?? 0;
+          const progressPercent = Math.min(100, (this.phaseElapsed / this.phaseTotal) * 100);
+          const minMarkPercent = minDur > 0 ? Math.min(100, (minDur / this.phaseTotal) * 100) : 0;
+          progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/10 rounded-sm recovery-progress" style="width:${progressPercent}%"></div>`;
+          if (minMarkPercent > 0 && minMarkPercent < 100) {
+            progressHtml += `<div class="absolute top-0 bottom-0 w-px bg-slate-400/50" style="left:${minMarkPercent}%"></div>`;
+          }
+        } else {
+          const progressPercent = Math.min(100, (this.phaseElapsed / this.phaseTotal) * 100);
+          progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
+        }
       }
 
-      return `<div class="relative h-7 flex items-center justify-center overflow-hidden rounded-sm ${bgClass} ${isCurrent ? 'ring-1 ring-white/60' : ''}" style="width:${widthPercent}%" title="${phase.name}${phase.zone ? ' ' + phase.zone : ''}">
+      // Recovery segments get a dashed border to look distinct even when not current
+      const recoveryBorder = isRecoveryPhase && !isCurrent ? "border border-dashed border-slate-500/40" : "";
+
+      return `<div class="relative h-7 flex items-center justify-center overflow-hidden rounded-sm ${bgClass} ${recoveryBorder} ${isCurrent ? 'ring-1 ring-white/60' : ''}" style="width:${widthPercent}%" title="${phase.name}${phase.zone ? ' ' + phase.zone : ''}${isRecoveryPhase && phase.target_hr ? ' HR\u2193' + phase.target_hr : ''}">
         ${progressHtml}
         <span class="relative z-10 text-xs font-medium ${isCurrent ? 'text-white' : color.text} truncate px-1">${nameAbbrev ? nameAbbrev + ' ' : ''}${zone}</span>
       </div>`;
@@ -187,28 +209,47 @@ export class TimelineController {
     // Phase name
     parts.push(`<span class="text-white">${phase.name}</span>`);
 
-    // Zone
-    if (phase.type === "recovery") {
+    if (this.isRecovery) {
+      // Recovery phase: show HR target and elapsed (no countdown)
       parts.push('<span class="text-slate-400">Recovery</span>');
-    } else if (phase.zone) {
-      parts.push(`<span class="text-gray-300">${phase.zone}</span>`);
-    }
 
-    // Cadence
-    if (phase.cadence) {
-      parts.push(`<span class="text-gray-500">${phase.cadence}rpm</span>`);
-    }
+      // HR target indicator
+      const hrTarget = this.targetHr ?? phase.target_hr;
+      if (hrTarget) {
+        parts.push(`<span class="text-slate-300">HR \u2193${hrTarget}</span>`);
+      }
 
-    // Position
-    if (phase.position) {
-      parts.push(`<span class="text-gray-500">${phase.position}</span>`);
-    }
-
-    // Time elapsed / total
-    if (this.phaseTotal > 0) {
+      // Elapsed time (no total -- duration is variable)
       const elapsed = formatDuration(this.phaseElapsed);
-      const total = formatDuration(this.phaseTotal);
-      parts.push(`<span class="text-gray-400">${elapsed} / ${total}</span>`);
+      const minDur = this.phaseMinDuration ?? phase.min_duration_s ?? 0;
+      const maxDur = this.phaseTotal;
+      if (minDur > 0 && maxDur > 0) {
+        parts.push(`<span class="text-gray-400">${elapsed} (${formatDuration(minDur)}\u2013${formatDuration(maxDur)})</span>`);
+      } else {
+        parts.push(`<span class="text-gray-400">${elapsed} elapsed</span>`);
+      }
+    } else {
+      // Timed phase: show zone, cadence, position, elapsed/total
+      if (phase.zone) {
+        parts.push(`<span class="text-gray-300">${phase.zone}</span>`);
+      }
+
+      // Cadence
+      if (phase.cadence) {
+        parts.push(`<span class="text-gray-500">${phase.cadence}rpm</span>`);
+      }
+
+      // Position
+      if (phase.position) {
+        parts.push(`<span class="text-gray-500">${phase.position}</span>`);
+      }
+
+      // Time elapsed / total
+      if (this.phaseTotal > 0) {
+        const elapsed = formatDuration(this.phaseElapsed);
+        const total = formatDuration(this.phaseTotal);
+        parts.push(`<span class="text-gray-400">${elapsed} / ${total}</span>`);
+      }
     }
 
     // Phase position in plan

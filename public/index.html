@@ -37,6 +37,15 @@
     .phase-active {
       animation: phase-pulse 2s ease-in-out infinite;
     }
+
+    /* Recovery phase progress: slower pulse to indicate "waiting for HR" */
+    @keyframes recovery-pulse {
+      0%, 100% { opacity: 0.10; }
+      50% { opacity: 0.20; }
+    }
+    .recovery-progress {
+      animation: recovery-pulse 3s ease-in-out infinite;
+    }
   </style>
 </head>
 <body class="bg-gray-950 text-white h-full overflow-hidden touch-manipulation">

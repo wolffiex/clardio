@@ -162,6 +162,7 @@ export async function startWorkout(): Promise<void> {
             type: "recovery",
             min_duration_s: phase.min_duration_s,
             max_duration_s: phase.max_duration_s,
+            target_hr: phase.target_hr,
             position: phase.position,
             cadence: phase.cadence,
           };
@@ -712,6 +713,8 @@ function advancePhaseIfNeeded(): void {
       phaseElapsed: 0,
       phaseTotal: newPhaseTotal,
       isRecovery: isRecoveryPhase(newPhase),
+      targetHr: isRecoveryPhase(newPhase) ? newPhase.target_hr : undefined,
+      phaseMinDuration: isRecoveryPhase(newPhase) ? newPhase.min_duration_s : undefined,
     });
   }
 }
@@ -771,6 +774,8 @@ function handleCoachResponse(response: CoachResponse): void {
     phaseElapsed: Math.round(phaseElapsed / 1000),
     phaseTotal,
     isRecovery: currentPhase ? isRecoveryPhase(currentPhase) : undefined,
+    targetHr: currentPhase && isRecoveryPhase(currentPhase) ? currentPhase.target_hr : undefined,
+    phaseMinDuration: currentPhase && isRecoveryPhase(currentPhase) ? currentPhase.min_duration_s : undefined,
   });
 
   log(

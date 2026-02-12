@@ -75,13 +75,13 @@ if (testMode) {
         { name: "Easy Spin",      zone: "Z1", duration_s: 300, position: "seated",   cadence: "70-80" },
         { name: "Build",          zone: "Z2", duration_s: 300, position: "seated",   cadence: "80-90" },
         { name: "Opener",         zone: "Z4", duration_s: 120, position: "seated",   cadence: "90-95" },
-        { name: "Recovery",       type: "recovery", min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
+        { name: "Recovery",       type: "recovery", target_hr: 130, min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
         { name: "Threshold 1",    zone: "Z4", duration_s: 240, position: "seated",   cadence: "85-95" },
         { name: "Standing Surge", zone: "Z5", duration_s: 60,  position: "standing", cadence: "60-70" },
-        { name: "Recovery",       type: "recovery", min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
+        { name: "Recovery",       type: "recovery", target_hr: 125, min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
         { name: "Sweet Spot",     zone: "Sweet Spot", duration_s: 300, position: "seated", cadence: "85-95" },
         { name: "Threshold 2",    zone: "Z4", duration_s: 240, position: "seated",   cadence: "85-95" },
-        { name: "Recovery",       type: "recovery", min_duration_s: 60, max_duration_s: 120, position: "seated", cadence: "70-80" },
+        { name: "Recovery",       type: "recovery", target_hr: 120, min_duration_s: 60, max_duration_s: 120, position: "seated", cadence: "70-80" },
         { name: "Cooldown",       zone: "Z1", duration_s: 300, position: "seated",   cadence: "65-75" },
       ],
     };
@@ -89,8 +89,9 @@ if (testMode) {
 
     // Set current phase info
     const currentPhase = samplePlan.phases[phaseIndex];
+    const isRecoveryPhase = currentPhase?.type === "recovery";
     const phaseTotal = currentPhase
-      ? (currentPhase.type === "recovery" ? (currentPhase.max_duration_s ?? 180) : (currentPhase.duration_s ?? 60))
+      ? (isRecoveryPhase ? (currentPhase.max_duration_s ?? 180) : (currentPhase.duration_s ?? 60))
       : 60;
 
     timeline.updatePhase({
@@ -98,7 +99,9 @@ if (testMode) {
       phaseName: currentPhase?.name,
       phaseElapsed,
       phaseTotal,
-      isRecovery: currentPhase?.type === "recovery",
+      isRecovery: isRecoveryPhase,
+      targetHr: isRecoveryPhase ? currentPhase?.target_hr : undefined,
+      phaseMinDuration: isRecoveryPhase ? currentPhase?.min_duration_s : undefined,
     });
   }
 

@@ -141,6 +141,8 @@ export class UIController {
             phaseElapsed: event.phaseElapsed ?? 0,
             phaseTotal: event.phaseTotal,
             isRecovery: event.isRecovery,
+            targetHr: event.targetHr,
+            phaseMinDuration: event.phaseMinDuration,
           });
         }
       }
