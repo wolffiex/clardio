@@ -17,6 +17,7 @@ import {
   isRecoveryPhase,
   buildCoachingSystemPrompt,
   getZonesText,
+  getZonePowerRanges,
   coachSchema,
 } from "../src/server/coach-prompt";
 
@@ -249,7 +250,8 @@ function buildReplayUserMessage(
   planSummary: string,
   samples: SampleRow[],
   offsetMs: number,
-  zonesText: string
+  zonesText: string,
+  zonePowerRanges: Record<string, { min: number; max: number }> | null
 ): string {
   const elapsedStr = formatElapsed(offsetMs);
   const sections: string[] = [];
@@ -308,6 +310,12 @@ function buildReplayUserMessage(
       sections.push(
         `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${cadenceStr}rpm`
       );
+      if (zonePowerRanges) {
+        const range = zonePowerRanges[currentPhase.zone];
+        if (range) {
+          sections.push(`Power range for ${currentPhase.zone}: ${range.min}-${range.max}W`);
+        }
+      }
       sections.push(
         `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
       );
@@ -692,11 +700,12 @@ async function main() {
 
   // Build zones (uses current DB state, same as a live workout would at start)
   const zonesText = getZonesText();
+  const zonePowerRanges = getZonePowerRanges();
 
   // Build reconstructed user message (always shown for comparison / --call use)
   const userMessage = closestTick
     ? closestTick.user_message
-    : buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText);
+    : buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText, zonePowerRanges);
 
   // Print system prompt
   console.log("=".repeat(80));

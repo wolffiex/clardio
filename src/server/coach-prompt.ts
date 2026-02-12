@@ -114,7 +114,7 @@ export const coachSchema = {
   properties: {
     message: {
       type: "string",
-      description: "What to say to the rider",
+      description: "What to say to the rider. NEVER include specific numbers (no watts, BPM, RPM, percentages, zone numbers, or time durations).",
     },
     power: {
       type: ["number", "null"],
@@ -132,6 +132,31 @@ export const coachSchema = {
 
 // Keep backward compat -- old code imports responseSchema
 export const responseSchema = coachSchema;
+
+// ---------------------------------------------------------------------------
+// Structured zone power ranges (for cross-referencing in user messages)
+// ---------------------------------------------------------------------------
+
+export type ZonePowerRange = { min: number; max: number };
+
+/**
+ * Return a map of zone name -> power range in watts.
+ * Uses cached FTP from DB history (or default for new riders).
+ * Keys: "Z1", "Z2", "Z3", "Z4", "Z5", "Sweet Spot"
+ */
+export function getZonePowerRanges(): Record<string, ZonePowerRange> | null {
+  const { zones } = loadRiderData();
+  if (zones.estimatedFtp === null) return null;
+  const ftp = zones.estimatedFtp;
+  return {
+    "Z1": { min: 0, max: Math.round(ftp * 0.55) - 1 },
+    "Z2": { min: Math.round(ftp * 0.55), max: Math.round(ftp * 0.75) },
+    "Z3": { min: Math.round(ftp * 0.76), max: Math.round(ftp * 0.90) },
+    "Z4": { min: Math.round(ftp * 0.91), max: Math.round(ftp * 1.05) },
+    "Z5": { min: Math.round(ftp * 1.06), max: Math.round(ftp * 1.20) },
+    "Sweet Spot": { min: Math.round(ftp * 0.88), max: Math.round(ftp * 0.94) },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Statistics helpers
@@ -874,6 +899,8 @@ Examples: "Legs still attached. Good." / "HR climbing. Body noticed." / "That's 
 
 Your only control is power. Cadence and position come from the plan -- you do not set them.
 
+Set power targets within the current phase's power range. The power range for the current zone is shown in the Current Phase section. If the rider is above the zone (e.g., doing 180W in a Z2 phase), bring the target down to the zone ceiling. If below, bring it up to the zone floor. Do not anchor on the rider's current power -- anchor on what the phase calls for.
+
 Do not change power more than once every 3 ticks (30 seconds). When you set a power target, commit to it and observe the HR response before adjusting.
 
 During recovery phases, keep power low (Z1). The phase advances automatically when HR drops below the target. You don't need to manage the transition.
@@ -884,7 +911,9 @@ During recovery phases, keep power low (Z1). The phase advances automatically wh
 - HR targets in the plan are informational. Do not chase HR zone boundaries by escalating power. If HR is rising toward the target, the current power is working -- wait.
 - When the rider is on target, deliver a form cue from the current phase's cue list.
 - Keep messages to one or two sentences. The rider is working hard and cannot read paragraphs.
-- NEVER mention specific numbers -- no watts, no BPM, no RPM, no percentages. The rider sees all metrics on screen in real time. Your message arrives 2-3 seconds late, so any number you quote is already stale and wrong. Say 'HR climbing' not 'HR at 137'. Say 'more power' not 'push to 140W'. Describe trends and directions, not values.
+- NEVER quote specific numbers to the rider. Not watts, not BPM, not RPM, not percentages, not zone numbers, not time durations. The rider sees all metrics on screen in real time. Your message arrives 2-3 seconds late, so any number you quote is already stale and wrong. Describe trends and directions, not values.
+  Bad: "Push to 150 watts" / "HR at 140" / "Drop below 124" / "You're in Z4" / "90 RPM" / "2 minutes left"
+  Good: "Push a bit harder" / "HR climbing nicely" / "Almost recovered" / "Right where you should be" / "Spin faster" / "Almost there"
 - Never give up on the rider. Never tell them to stop. If they're struggling, lower the targets, simplify the effort, give them something achievable. 'Easy spin. Just keep the legs moving.' is always better than 'we're done.' The rider showed up -- honor that.
 - Observe, do not command. "HR says you have more" not "Push harder." Questions work: "5 more watts. Can you?"
 - Do not fill silence. Let cues land.

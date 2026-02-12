@@ -14,6 +14,7 @@ import {
   buildPlanningUserPrompt,
   buildCoachingSystemPrompt,
   getZonesText,
+  getZonePowerRanges,
 } from "./coach-prompt";
 import { planWorkout, sendCoachMessage } from "./coach";
 import { savePlan, getRecentPlans, saveSample, saveCoachTick } from "./db";
@@ -62,6 +63,9 @@ let coachNotes: Array<{ elapsed: string; note: string }> = [];
 // Cached zones text (computed once at workout start, never recalculated mid-workout)
 let cachedZonesText: string = "";
 
+// Cached zone power ranges for cross-referencing in Current Phase section
+let cachedZonePowerRanges: Record<string, { min: number; max: number }> | null = null;
+
 // Metrics buffer
 type Sample = { power: number; hr: number; cadence: number; receivedAt: number };
 let samples: Sample[] = [];
@@ -96,6 +100,7 @@ export async function startWorkout(): Promise<void> {
   try {
     // 0. Cache zones BEFORE any samples are saved (avoids warmup data polluting zones)
     cachedZonesText = getZonesText();
+    cachedZonePowerRanges = getZonePowerRanges();
 
     // 1. Build planning prompts (static system + dynamic user)
     const recentPlans = getRecentPlans(5);
@@ -219,6 +224,7 @@ export function stopWorkout(): void {
   currentPlanId = null;
   coachingPrompt = "";
   cachedZonesText = "";
+  cachedZonePowerRanges = null;
   coachHistory = [];
   samples = [];
   lastSampleTime = null;
@@ -407,6 +413,10 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
           );
+          const newPhaseRange = lookupZonePowerRange(currentPhase.zone);
+          if (newPhaseRange) {
+            sections.push(`Power range for ${currentPhase.zone}: ${newPhaseRange}`);
+          }
           sections.push(
             `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
           );
@@ -426,6 +436,10 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
           );
+          const ongoingPhaseRange = lookupZonePowerRange(currentPhase.zone);
+          if (ongoingPhaseRange) {
+            sections.push(`Power range for ${currentPhase.zone}: ${ongoingPhaseRange}`);
+          }
           sections.push(
             `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
           );
@@ -594,6 +608,17 @@ function buildUserMessage(isStart: boolean): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Look up the power range string for a zone name (e.g. "Z4" -> "163-188W").
+ * Uses the cached zone power ranges computed at workout start.
+ */
+function lookupZonePowerRange(zoneName: string): string | null {
+  if (!cachedZonePowerRanges) return null;
+  const range = cachedZonePowerRanges[zoneName];
+  if (!range) return null;
+  return `${range.min}-${range.max}W`;
+}
 
 function getElapsedMs(): number {
   return Date.now() - workoutStartTime;

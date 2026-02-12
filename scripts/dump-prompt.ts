@@ -10,6 +10,7 @@ import {
   buildPlanningUserPrompt,
   buildCoachingSystemPrompt,
   getZonesText,
+  getZonePowerRanges,
   planSchema,
   coachSchema,
 } from "../src/server/coach-prompt.ts";
@@ -50,6 +51,10 @@ if (arg === "coaching" || arg === "both") {
 
   // Build a realistic sample of what a mid-workout coaching tick looks like
   const zones = getZonesText();
+  const zonePowerRanges = getZonePowerRanges();
+  const ssPowerRange = zonePowerRanges?.["Sweet Spot"]
+    ? `Power range for Sweet Spot: ${zonePowerRanges["Sweet Spot"].min}-${zonePowerRanges["Sweet Spot"].max}W`
+    : "Power range: unknown";
 
   const sampleUserMessage = `WORKOUT TIME: 15:40
 
@@ -77,6 +82,7 @@ ${zones}
 
 ## Current Phase
 Sweet Spot Block 1 | Sweet Spot | seated | 85-95rpm
+${ssPowerRange}
 Phase time: 3:20 elapsed, 4:40 remaining
 HR target: 140-150 (informational)
 Cues: smooth circles, drop heels, quiet hips, rhythmic breathing
