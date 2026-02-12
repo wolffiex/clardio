@@ -22,6 +22,11 @@ export interface TargetEvent {
   power: number | null;
   cadence: string | null;
   position: string | null;
+  phaseIndex?: number;
+  phaseName?: string;
+  phaseElapsed?: number;  // seconds elapsed in current phase
+  phaseTotal?: number;    // total duration of current phase (or max_duration_s for recovery)
+  isRecovery?: boolean;
 }
 
 // Union type for all SSE events

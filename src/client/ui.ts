@@ -1,5 +1,5 @@
 import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
-import { formatTime } from "./handlers";
+import { formatTime, getTimeline } from "./handlers";
 import {
   calculateFillPercent,
   getColorFromDistance,
@@ -12,6 +12,20 @@ import {
   CADENCE_GRACE_ZONE,
   CADENCE_MAX_DISTANCE,
 } from "./progress";
+
+/**
+ * Parse a cadence target string like "85-95" into its midpoint (90).
+ * Returns null if the string is null or unparseable.
+ */
+function parseCadenceTarget(cadence: string | null): number | null {
+  if (cadence === null) return null;
+  const match = cadence.match(/(\d+)\s*-\s*(\d+)/);
+  if (match) {
+    return Math.round((parseInt(match[1]) + parseInt(match[2])) / 2);
+  }
+  const num = parseInt(cadence);
+  return isNaN(num) ? null : num;
+}
 
 interface UIElements {
   coachMessage: HTMLElement;
@@ -112,7 +126,21 @@ export class UIController {
   updateTarget(event: TargetEvent | null): void {
     if (event) {
       this.targetPower = event.power;
-      this.targetCadence = event.cadence;
+      this.targetCadence = parseCadenceTarget(event.cadence);
+
+      // Update timeline with phase info if present
+      if (event.phaseIndex !== undefined && event.phaseTotal !== undefined) {
+        const tl = getTimeline();
+        if (tl && tl.hasPlan()) {
+          tl.updatePhase({
+            phaseIndex: event.phaseIndex,
+            phaseName: event.phaseName,
+            phaseElapsed: event.phaseElapsed ?? 0,
+            phaseTotal: event.phaseTotal,
+            isRecovery: event.isRecovery,
+          });
+        }
+      }
     } else {
       this.targetPower = null;
       this.targetCadence = null;

@@ -163,6 +163,7 @@ export async function startWorkout(): Promise<void> {
             min_duration_s: phase.min_duration_s,
             max_duration_s: phase.max_duration_s,
             position: phase.position,
+            cadence: phase.cadence,
           };
         }
         return {
@@ -170,6 +171,7 @@ export async function startWorkout(): Promise<void> {
           duration_s: phase.duration_s,
           zone: phase.zone,
           position: phase.position,
+          cadence: phase.cadence,
         };
       })
     });
@@ -688,6 +690,20 @@ function advancePhaseIfNeeded(): void {
     currentPhaseIndex++;
     phaseStartTimes[currentPhaseIndex] = Date.now();
     log(`Phase advanced to: ${currentPlan.phases[currentPhaseIndex].name}`);
+
+    // Broadcast target event with new phase info so client timeline updates immediately
+    const newPhase = currentPlan.phases[currentPhaseIndex];
+    const newPhaseTotal = isRecoveryPhase(newPhase) ? newPhase.max_duration_s : newPhase.duration_s;
+    broadcast("target", {
+      power: currentPowerTarget,
+      cadence: newPhase.cadence,
+      position: newPhase.position,
+      phaseIndex: currentPhaseIndex,
+      phaseName: newPhase.name,
+      phaseElapsed: 0,
+      phaseTotal: newPhaseTotal,
+      isRecovery: isRecoveryPhase(newPhase),
+    });
   }
 }
 
@@ -729,14 +745,23 @@ function handleCoachResponse(response: CoachResponse): void {
   broadcast("coach", { text: response.message });
 
   // Broadcast target: power from coach, cadence + position from plan phase
-  const { currentPhase } = getCurrentPhaseInfo(getElapsedMs());
+  const { currentPhase, phaseElapsed, phaseRemaining } = getCurrentPhaseInfo(getElapsedMs());
   const phaseCadence = currentPhase ? currentPhase.cadence : null;
   const phasePosition = currentPhase ? currentPhase.position : null;
+
+  const phaseTotal = currentPhase
+    ? (isRecoveryPhase(currentPhase) ? currentPhase.max_duration_s : currentPhase.duration_s)
+    : undefined;
 
   broadcast("target", {
     power: effectivePower,
     cadence: phaseCadence,
     position: phasePosition,
+    phaseIndex: currentPhaseIndex,
+    phaseName: currentPhase?.name,
+    phaseElapsed: Math.round(phaseElapsed / 1000),
+    phaseTotal,
+    isRecovery: currentPhase ? isRecoveryPhase(currentPhase) : undefined,
   });
 
   log(

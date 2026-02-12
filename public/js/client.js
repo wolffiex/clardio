@@ -63,9 +63,19 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 var currentPlan = null;
+var timeline = null;
+function initTimeline(tl) {
+  timeline = tl;
+}
 function handlePlan(data) {
   currentPlan = data;
   console.log("Plan received:", data.summary, `${data.phases.length} phases`);
+  if (timeline) {
+    timeline.setPlan(data.phases);
+  }
+}
+function getTimeline() {
+  return timeline;
 }
 
 // src/client/progress.ts
@@ -117,6 +127,17 @@ function getColorFromDistance(value, target, graceZone, maxDistance) {
 }
 
 // src/client/ui.ts
+function parseCadenceTarget(cadence) {
+  if (cadence === null)
+    return null;
+  const match = cadence.match(/(\d+)\s*-\s*(\d+)/);
+  if (match) {
+    return Math.round((parseInt(match[1]) + parseInt(match[2])) / 2);
+  }
+  const num = parseInt(cadence);
+  return isNaN(num) ? null : num;
+}
+
 class UIController {
   elements;
   power = 0;
@@ -181,7 +202,19 @@ class UIController {
   updateTarget(event) {
     if (event) {
       this.targetPower = event.power;
-      this.targetCadence = event.cadence;
+      this.targetCadence = parseCadenceTarget(event.cadence);
+      if (event.phaseIndex !== undefined && event.phaseTotal !== undefined) {
+        const tl = getTimeline();
+        if (tl && tl.hasPlan()) {
+          tl.updatePhase({
+            phaseIndex: event.phaseIndex,
+            phaseName: event.phaseName,
+            phaseElapsed: event.phaseElapsed ?? 0,
+            phaseTotal: event.phaseTotal,
+            isRecovery: event.isRecovery
+          });
+        }
+      }
     } else {
       this.targetPower = null;
       this.targetCadence = null;
@@ -239,9 +272,143 @@ class UIController {
   }
 }
 
+// src/client/timeline.ts
+var ZONE_COLORS = {
+  Z1: { bg: "bg-blue-600", text: "text-blue-200", dimmed: "bg-blue-900" },
+  Z2: { bg: "bg-green-600", text: "text-green-200", dimmed: "bg-green-900" },
+  Z3: { bg: "bg-yellow-600", text: "text-yellow-200", dimmed: "bg-yellow-900" },
+  Z4: { bg: "bg-orange-600", text: "text-orange-200", dimmed: "bg-orange-900" },
+  Z5: { bg: "bg-red-600", text: "text-red-200", dimmed: "bg-red-900" },
+  "Sweet Spot": { bg: "bg-amber-600", text: "text-amber-200", dimmed: "bg-amber-900" }
+};
+var RECOVERY_COLOR = { bg: "bg-slate-600", text: "text-slate-300", dimmed: "bg-slate-800" };
+var DEFAULT_COLOR = { bg: "bg-gray-600", text: "text-gray-300", dimmed: "bg-gray-800" };
+function getZoneColor(phase) {
+  if (phase.type === "recovery")
+    return RECOVERY_COLOR;
+  if (phase.zone && ZONE_COLORS[phase.zone])
+    return ZONE_COLORS[phase.zone];
+  return DEFAULT_COLOR;
+}
+function getPhaseDuration(phase) {
+  if (phase.type === "recovery" && phase.max_duration_s)
+    return phase.max_duration_s;
+  return phase.duration_s ?? 60;
+}
+function formatDuration(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (s === 0)
+    return `${m}:00`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+function abbreviateName(name, maxLen) {
+  if (name.length <= maxLen)
+    return name;
+  let short = name.replace(/Recovery/i, "Rec").replace(/Warmup/i, "WU").replace(/Cooldown/i, "CD").replace(/Interval/i, "Int").replace(/Standing/i, "Stand").replace(/Seated/i, "Seat");
+  if (short.length <= maxLen)
+    return short;
+  return short.slice(0, maxLen - 1) + "…";
+}
+
+class TimelineController {
+  container;
+  phases = [];
+  currentPhaseIndex = -1;
+  phaseElapsed = 0;
+  phaseTotal = 0;
+  isRecovery = false;
+  phaseName = "";
+  constructor() {
+    this.container = document.getElementById("timeline");
+  }
+  setPlan(phases) {
+    this.phases = phases;
+    this.currentPhaseIndex = -1;
+    this.render();
+    this.container.classList.remove("hidden");
+  }
+  updatePhase(info) {
+    this.currentPhaseIndex = info.phaseIndex;
+    this.phaseName = info.phaseName ?? "";
+    this.phaseElapsed = info.phaseElapsed;
+    this.phaseTotal = info.phaseTotal;
+    this.isRecovery = info.isRecovery ?? false;
+    this.render();
+  }
+  hasPlan() {
+    return this.phases.length > 0;
+  }
+  render() {
+    if (this.phases.length === 0)
+      return;
+    const totalDuration = this.phases.reduce((sum, p) => sum + getPhaseDuration(p), 0);
+    const detailHtml = this.buildDetailLine();
+    const segmentsHtml = this.phases.map((phase, i) => {
+      const duration = getPhaseDuration(phase);
+      const widthPercent = duration / totalDuration * 100;
+      const color = getZoneColor(phase);
+      const isCurrent = i === this.currentPhaseIndex;
+      const isCompleted = i < this.currentPhaseIndex;
+      let bgClass;
+      if (isCurrent) {
+        bgClass = `${color.bg} phase-active`;
+      } else if (isCompleted) {
+        bgClass = `${color.dimmed} opacity-60`;
+      } else {
+        bgClass = `${color.dimmed} opacity-40`;
+      }
+      const zone = phase.type === "recovery" ? "Rec" : phase.zone ?? "";
+      const showName = widthPercent > 8;
+      const nameAbbrev = showName ? abbreviateName(phase.name, widthPercent > 15 ? 12 : 6) : "";
+      let progressHtml = "";
+      if (isCurrent && this.phaseTotal > 0) {
+        const progressPercent = Math.min(100, this.phaseElapsed / this.phaseTotal * 100);
+        progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
+      }
+      return `<div class="relative h-7 flex items-center justify-center overflow-hidden rounded-sm ${bgClass} ${isCurrent ? "ring-1 ring-white/60" : ""}" style="width:${widthPercent}%" title="${phase.name}${phase.zone ? " " + phase.zone : ""}">
+        ${progressHtml}
+        <span class="relative z-10 text-xs font-medium ${isCurrent ? "text-white" : color.text} truncate px-1">${nameAbbrev ? nameAbbrev + " " : ""}${zone}</span>
+      </div>`;
+    }).join("");
+    this.container.innerHTML = `
+      <div class="mb-1 text-xs text-gray-400 font-mono truncate h-4">${detailHtml}</div>
+      <div class="flex gap-px h-7">${segmentsHtml}</div>
+    `;
+  }
+  buildDetailLine() {
+    if (this.currentPhaseIndex < 0 || this.currentPhaseIndex >= this.phases.length) {
+      return "";
+    }
+    const phase = this.phases[this.currentPhaseIndex];
+    const parts = [];
+    parts.push(`<span class="text-white">${phase.name}</span>`);
+    if (phase.type === "recovery") {
+      parts.push('<span class="text-slate-400">Recovery</span>');
+    } else if (phase.zone) {
+      parts.push(`<span class="text-gray-300">${phase.zone}</span>`);
+    }
+    if (phase.cadence) {
+      parts.push(`<span class="text-gray-500">${phase.cadence}rpm</span>`);
+    }
+    if (phase.position) {
+      parts.push(`<span class="text-gray-500">${phase.position}</span>`);
+    }
+    if (this.phaseTotal > 0) {
+      const elapsed = formatDuration(this.phaseElapsed);
+      const total = formatDuration(this.phaseTotal);
+      parts.push(`<span class="text-gray-400">${elapsed} / ${total}</span>`);
+    }
+    parts.push(`<span class="text-gray-600">${this.currentPhaseIndex + 1}/${this.phases.length}</span>`);
+    return parts.join('<span class="text-gray-700 mx-1">·</span>');
+  }
+}
+
 // src/client/main.ts
 var sse = new SSEClient;
 var ui = new UIController;
+var timeline2 = new TimelineController;
+initTimeline(timeline2);
 var params = new URLSearchParams(window.location.search);
 var testMode = params.has("power") || params.has("target_power");
 if (testMode) {
@@ -252,12 +419,43 @@ if (testMode) {
   if (message) {
     ui.updateCoach({ text: message });
   }
+  const phaseIndex = params.has("phase_index") ? parseInt(params.get("phase_index")) : -1;
+  const phaseElapsed = params.has("phase_elapsed") ? parseInt(params.get("phase_elapsed")) : 0;
+  if (phaseIndex >= 0) {
+    const samplePlan = {
+      summary: "Threshold intervals with standing surges",
+      phases: [
+        { name: "Easy Spin", zone: "Z1", duration_s: 300, position: "seated", cadence: "70-80" },
+        { name: "Build", zone: "Z2", duration_s: 300, position: "seated", cadence: "80-90" },
+        { name: "Opener", zone: "Z4", duration_s: 120, position: "seated", cadence: "90-95" },
+        { name: "Recovery", type: "recovery", min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
+        { name: "Threshold 1", zone: "Z4", duration_s: 240, position: "seated", cadence: "85-95" },
+        { name: "Standing Surge", zone: "Z5", duration_s: 60, position: "standing", cadence: "60-70" },
+        { name: "Recovery", type: "recovery", min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: "70-80" },
+        { name: "Sweet Spot", zone: "Sweet Spot", duration_s: 300, position: "seated", cadence: "85-95" },
+        { name: "Threshold 2", zone: "Z4", duration_s: 240, position: "seated", cadence: "85-95" },
+        { name: "Recovery", type: "recovery", min_duration_s: 60, max_duration_s: 120, position: "seated", cadence: "70-80" },
+        { name: "Cooldown", zone: "Z1", duration_s: 300, position: "seated", cadence: "65-75" }
+      ]
+    };
+    handlePlan(samplePlan);
+    const currentPhase = samplePlan.phases[phaseIndex];
+    const phaseTotal = currentPhase ? currentPhase.type === "recovery" ? currentPhase.max_duration_s ?? 180 : currentPhase.duration_s ?? 60 : 60;
+    timeline2.updatePhase({
+      phaseIndex,
+      phaseName: currentPhase?.name,
+      phaseElapsed,
+      phaseTotal,
+      isRecovery: currentPhase?.type === "recovery"
+    });
+  }
   const targetPower = params.get("target_power");
   const targetCadence = params.get("target_cadence");
   if (targetPower && targetCadence) {
     ui.updateTarget({
       power: parseInt(targetPower),
-      cadence: parseInt(targetCadence)
+      cadence: targetCadence,
+      position: null
     });
   }
   const power = params.get("power");

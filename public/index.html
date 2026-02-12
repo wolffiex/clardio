@@ -28,6 +28,15 @@
       padding-right: env(safe-area-inset-right);
       padding-bottom: env(safe-area-inset-bottom);
     }
+
+    /* Timeline phase pulse animation */
+    @keyframes phase-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .phase-active {
+      animation: phase-pulse 2s ease-in-out infinite;
+    }
   </style>
 </head>
 <body class="bg-gray-950 text-white h-full overflow-hidden touch-manipulation">
@@ -114,8 +123,11 @@
 
   </div>
 
+  <!-- Workout phase timeline -->
+  <div id="timeline" class="fixed bottom-0 left-0 right-0 px-4 py-2 bg-black/80 hidden"></div>
+
   <!-- Connection status indicator -->
-  <div id="connection-status" class="absolute bottom-4 left-4 flex items-center gap-2">
+  <div id="connection-status" class="fixed bottom-16 left-4 flex items-center gap-2 z-10">
     <div id="connection-dot" class="w-3 h-3 rounded-full bg-yellow-500"></div>
     <span id="connection-text" class="text-sm text-gray-500">connecting</span>
   </div>

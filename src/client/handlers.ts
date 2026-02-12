@@ -1,3 +1,5 @@
+import { TimelineController } from "./timeline";
+
 /**
  * Format seconds as time string (MM:SS or H:MM:SS)
  */
@@ -17,10 +19,22 @@ export function formatTime(seconds: number): string {
 // ---------------------------------------------------------------------------
 
 let currentPlan: any = null;
+let timeline: TimelineController | null = null;
+
+export function initTimeline(tl: TimelineController): void {
+  timeline = tl;
+}
 
 export function handlePlan(data: any): void {
   currentPlan = data;
   console.log("Plan received:", data.summary, `${data.phases.length} phases`);
+  if (timeline) {
+    timeline.setPlan(data.phases);
+  }
+}
+
+export function getTimeline(): TimelineController | null {
+  return timeline;
 }
 
 export function getPlan(): any {
