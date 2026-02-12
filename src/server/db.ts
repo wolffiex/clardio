@@ -108,11 +108,6 @@ export function getRecentPlans(limit: number = 10): PlanRow[] {
   return db.query("SELECT * FROM plans ORDER BY created_at DESC LIMIT ?").all(limit) as PlanRow[];
 }
 
-export function completePlan(id: number, summary: string): void {
-  const db = getDb();
-  db.run("UPDATE plans SET completed = 1, summary = ? WHERE id = ?", [summary, id]);
-}
-
 export function saveSample(
   planId: number,
   timestampMs: number,

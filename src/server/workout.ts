@@ -1,7 +1,7 @@
 /**
  * Workout session manager
  *
- * Lifecycle: startWorkout -> plan (Opus) -> coach loop (Sonnet) -> stopWorkout
+ * startWorkout -> plan (Opus) -> coach loop (Sonnet) -> stopWorkout
  * Buffers metrics, tracks plan phases, calls coach every 10 seconds
  */
 
@@ -15,7 +15,7 @@ import {
   getZonesText,
 } from "./coach-prompt";
 import { planWorkout, sendCoachMessage } from "./coach";
-import { savePlan, getRecentPlans, completePlan, saveSample, saveCoachTick } from "./db";
+import { savePlan, getRecentPlans, saveSample, saveCoachTick } from "./db";
 import { broadcast } from "./sse";
 import { log } from "./log";
 
@@ -182,18 +182,7 @@ export function stopWorkout(): void {
     coachTimer = null;
   }
 
-  // Compute summary from samples and update plan
-  if (currentPlanId && samples.length > 0) {
-    const avgPower =
-      samples.reduce((s, x) => s + x.power, 0) / samples.length;
-    const avgHr = samples.reduce((s, x) => s + x.hr, 0) / samples.length;
-    const avgCadence =
-      samples.reduce((s, x) => s + x.cadence, 0) / samples.length;
-    const duration = Math.round((Date.now() - workoutStartTime) / 1000);
-    const summary = `${Math.floor(duration / 60)}min, avg ${Math.round(avgPower)}W ${Math.round(avgHr)}bpm ${Math.round(avgCadence)}rpm`;
-    completePlan(currentPlanId, summary);
-    log(`Workout complete: ${summary}`);
-  }
+  log("Workout stopped.");
 
   // Reset state
   currentPlan = null;

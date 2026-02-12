@@ -1,4 +1,4 @@
-import { getDb, savePlan, getRecentPlans, saveSample, getSamplesForPlan, completePlan, closeDb } from "../src/server/db";
+import { getDb, savePlan, getRecentPlans, saveSample, getSamplesForPlan, closeDb } from "../src/server/db";
 
 console.log("Testing SQLite database...\n");
 
@@ -25,7 +25,7 @@ const plans = getRecentPlans(5);
 console.log(`\nRecent plans (${plans.length}):`);
 for (const p of plans) {
   const ph = JSON.parse(p.phases);
-  console.log(`  Plan ${p.id}: ${ph.length} phases, created ${p.created_at}, completed: ${!!p.completed}`);
+  console.log(`  Plan ${p.id}: ${ph.length} phases, created ${p.created_at}`);
 }
 
 const samples = getSamplesForPlan(planId);
@@ -33,11 +33,6 @@ console.log(`\nSamples for plan ${planId} (${samples.length}):`);
 for (const s of samples) {
   console.log(`  ${s.timestamp_ms}: ${s.power}W ${s.hr}bpm ${s.cadence}rpm (${s.duration_ms}ms)`);
 }
-
-// Test completion
-completePlan(planId, "Test workout completed successfully");
-const updated = getRecentPlans(1);
-console.log(`\nAfter completion: completed=${!!updated[0].completed}, summary="${updated[0].summary}"`);
 
 closeDb();
 console.log("\nAll tests passed!");

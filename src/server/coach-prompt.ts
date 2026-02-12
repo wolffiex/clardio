@@ -192,7 +192,6 @@ function calculateNormalizedPower(
 interface SessionSummary {
   planId: number;
   date: Date;
-  completed: boolean;
   planSummary: string | null;
   durationMinutes: number;
   avgPower: number;
@@ -265,7 +264,6 @@ function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary |
   return {
     planId: plan.id,
     date: new Date(plan.created_at + "Z"),
-    completed: plan.completed === 1,
     planSummary: plan.summary,
     durationMinutes,
     avgPower,

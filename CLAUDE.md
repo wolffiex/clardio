@@ -24,7 +24,7 @@ Claude controls the screen - this is not a chat interface. The coach is:
 3. Plan saved to SQLite
 4. Sonnet 4.5 coaches every 10 seconds, receiving metrics + plan + phase context
 5. Sensor samples saved to SQLite as they arrive
-6. On SSE disconnect, workout summary computed and saved to plan row
+6. On SSE disconnect, workout stops (no special finalization -- ride data is the record)
 
 ## Models
 
@@ -113,7 +113,7 @@ sudo usbreset "2357:0604"
 src/server/index.ts        # Bun HTTP server, static files, route dispatch
 src/server/sse.ts          # SSE connection handling, workout lifecycle triggers
 src/server/routes.ts       # POST /api/metrics handler (sensor data ingestion)
-src/server/workout.ts      # Workout session manager (plan -> coach loop -> summary)
+src/server/workout.ts      # Workout session manager (plan -> coach loop)
 src/server/coach.ts        # Anthropic SDK calls (planWorkout, sendCoachMessage)
 src/server/coach-prompt.ts # All prompts, schemas, rider profile, zone calculations
 src/server/db.ts           # SQLite database (plans + samples tables)
@@ -150,8 +150,8 @@ SQLite at `~/.clardio/clardio.db`. Created automatically on first run. Uses WAL 
 id              INTEGER PRIMARY KEY AUTOINCREMENT
 created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 phases          TEXT NOT NULL        -- JSON array of phase objects
-completed       INTEGER NOT NULL DEFAULT 0
-summary         TEXT                 -- Filled on workout completion (e.g. "25min, avg 150W 135bpm 85rpm")
+completed       INTEGER NOT NULL DEFAULT 0  -- legacy column, not used
+summary         TEXT                        -- legacy column, not used
 ```
 
 **samples** - Sensor readings during a workout:

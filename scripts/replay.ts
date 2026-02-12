@@ -34,7 +34,6 @@ type PlanRow = {
   id: number;
   created_at: string;
   phases: string;
-  completed: number;
   summary: string | null;
 };
 
@@ -119,11 +118,10 @@ function listPlans(): void {
     const phases: Phase[] = JSON.parse(p.phases);
     const totalPlanMin = phases.reduce((s, ph) => s + ph.duration_minutes, 0);
     const actualDuration = p.span_ms ? formatDuration(p.span_ms) : "no samples";
-    const status = p.completed ? "done" : "incomplete";
     const phaseNames = phases.map((ph) => ph.name).join(", ");
     const tickInfo = p.tick_count > 0 ? ` | ${p.tick_count} ticks` : "";
     console.log(
-      `  ${p.id}. [${p.created_at}] ${status} | plan: ${totalPlanMin}min | actual: ${actualDuration} | ${p.sample_count} samples${tickInfo}`
+      `  ${p.id}. [${p.created_at}] plan: ${totalPlanMin}min | actual: ${actualDuration} | ${p.sample_count} samples${tickInfo}`
     );
     console.log(`     phases: ${phaseNames}`);
     if (p.summary) {
