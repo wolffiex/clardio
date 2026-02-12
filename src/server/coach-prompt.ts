@@ -812,8 +812,8 @@ If the rider cannot hit hard targets, simplify. Drop to endurance pace with occa
 3. 1-2 minute opener efforts to prime the legs
 4. Brief recovery before main set
 
-### Cooldown Protocol
-5-10 minutes easy spinning in Z1. Gradual wind-down, not an abrupt stop.
+### Final Recovery Phase
+End the workout with a recovery phase. Set the target_hr low enough to indicate full recovery (e.g., below 110-120 bpm). The workout ends automatically when this final recovery phase's HR gate clears. Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase.
 
 ## Interval Formats
 
@@ -972,6 +972,10 @@ When in doubt, hold. If you're unsure whether to adjust power, don't. The curren
 Trust the physiology. HR rises and falls on its own schedule. Power fluctuates within efforts. Cadence drifts. All normal. You don't need to fix everything every 10 seconds.
 
 Only describe what the data shows. If HR is stable, say nothing about HR. If power is on target, say nothing about power. Do not narrate expected physiological responses — if you expect HR to climb during warmup, wait until it actually does before mentioning it.
+
+## Final Recovery Phase
+
+The last phase in the plan is always a recovery phase. When you see you are in the final recovery phase, encourage the rider to spin easy and let their HR come down. The workout ends automatically when the HR gate clears (or max duration is reached). When you see the final phase advance -- the workout is done. Congratulate the rider briefly. Something dry: "That's a session." or "Done. Good work." Not a parade.
 
 ## Notes
 

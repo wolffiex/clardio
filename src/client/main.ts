@@ -162,6 +162,15 @@ if (testMode) {
     handlePlan(data);
   });
 
+  sse.on("workout_complete", (data) => {
+    const event = data as { reason: "hr_cleared" | "max_duration"; message: string };
+    console.log("[App] Workout complete:", event.reason, event.message);
+    ui.stopTimer();
+    if (timeline.hasPlan()) {
+      timeline.setComplete(event.reason);
+    }
+  });
+
   sse.on("_connected", () => {
     ui.setConnectionStatus("connecting");
   });

@@ -148,6 +148,24 @@ export class TimelineController {
     return this.phases.length > 0;
   }
 
+  /**
+   * Mark the workout as complete. All segments become completed/dimmed,
+   * the detail line shows a completion message, and the timer stops.
+   */
+  setComplete(reason: "hr_cleared" | "max_duration"): void {
+    this.clearTimer();
+    // Set phase index past the last phase so all segments render as completed
+    this.currentPhaseIndex = this.phases.length;
+    this.isRecovery = false;
+    this.render();
+    // Override the detail line with a completion message
+    const el = document.getElementById("timeline-detail");
+    if (el) {
+      const label = reason === "hr_cleared" ? "Complete" : "Complete (max duration)";
+      el.innerHTML = `<span class="text-green-400">${label}</span>`;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Client-side countdown timer
   // -------------------------------------------------------------------------

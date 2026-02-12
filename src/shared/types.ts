@@ -31,6 +31,12 @@ export interface TargetEvent {
   phaseMinDuration?: number; // for recovery phases: minimum seconds before HR check
 }
 
+// workout_complete event - workout ended (final recovery HR gate cleared or max duration)
+export interface WorkoutCompleteEvent {
+  reason: "hr_cleared" | "max_duration";
+  message: string;
+}
+
 // Union type for all SSE events
-export type SSEEventType = "coach" | "metrics" | "target" | "connected" | "plan";
+export type SSEEventType = "coach" | "metrics" | "target" | "connected" | "plan" | "workout_complete";
 

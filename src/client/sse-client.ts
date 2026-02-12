@@ -48,7 +48,7 @@ export class SSEClient {
     };
 
     // Listen for all event types we care about
-    const eventTypes = ["connected", "coach", "metrics", "target", "plan"];
+    const eventTypes = ["connected", "coach", "metrics", "target", "plan", "workout_complete"];
 
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event: MessageEvent) => {

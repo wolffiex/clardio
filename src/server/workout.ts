@@ -510,7 +510,7 @@ function buildUserMessage(isStart: boolean): string {
       lastPhaseName = currentPhase.name;
       lastPhasePosition = currentPhase.position;
     } else {
-      sections.push("Workout complete -- cool down.");
+      sections.push("Workout complete.");
     }
   }
 
@@ -750,6 +750,27 @@ function advancePhaseIfNeeded(): void {
       targetHr: isRecoveryPhase(newPhase) ? newPhase.target_hr : undefined,
       phaseMinDuration: isRecoveryPhase(newPhase) ? newPhase.min_duration_s : undefined,
     });
+  } else if (shouldAdvance && currentPhaseIndex === currentPlan.phases.length - 1) {
+    // Last phase completed -- workout is done
+    const lastPhase = currentPlan.phases[currentPhaseIndex];
+    const isLastRecovery = isRecoveryPhase(lastPhase);
+    const phaseElapsedMs = Date.now() - (phaseStartTimes[currentPhaseIndex] ?? workoutStartTime);
+
+    // Determine if HR gate cleared or max duration was hit
+    let reason: "hr_cleared" | "max_duration" = "hr_cleared";
+    let message = "Workout complete. Nice work.";
+    if (isLastRecovery) {
+      const maxElapsed = phaseElapsedMs >= lastPhase.max_duration_s * 1000;
+      if (maxElapsed) {
+        reason = "max_duration";
+        message = "Workout complete. HR didn't fully settle, but you put in the work.";
+      }
+    }
+
+    log(`Workout complete (reason: ${reason})`);
+    broadcast("coach", { text: message });
+    broadcast("workout_complete", { reason, message });
+    stopWorkout();
   }
 }
 
