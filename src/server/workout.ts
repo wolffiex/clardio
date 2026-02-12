@@ -401,6 +401,7 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `\u{1F504} NEW PHASE -- was "${lastPhaseName}", now entering "${currentPhase.name}"`
           );
+          sections.push(getPreviousPhaseDescription());
           sections.push(
             `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
           );
@@ -419,6 +420,16 @@ function buildUserMessage(isStart: boolean): string {
             `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
+
+          // HR proximity indicator for recovery phases
+          if (latestHr !== null) {
+            const gap = latestHr - currentPhase.target_hr;
+            if (gap > 0 && gap <= 5) {
+              sections.push(`\u26A1 HR approaching target — next phase imminent`);
+            } else if (gap > 5 && gap <= 10) {
+              sections.push(`HR trending toward target`);
+            }
+          }
         }
       } else {
         // Timed phase display
@@ -427,6 +438,7 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `\u{1F504} NEW PHASE -- was "${lastPhaseName}", now entering "${currentPhase.name}"`
           );
+          sections.push(getPreviousPhaseDescription());
           sections.push(
             `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
           );
@@ -739,6 +751,15 @@ function getNextPhase(): Phase | null {
   if (!currentPlan) return null;
   if (currentPhaseIndex >= currentPlan.phases.length - 1) return null;
   return currentPlan.phases[currentPhaseIndex + 1];
+}
+
+function getPreviousPhaseDescription(): string {
+  if (!currentPlan || currentPhaseIndex === 0) return "";
+  const prev = currentPlan.phases[currentPhaseIndex - 1];
+  if (isRecoveryPhase(prev)) {
+    return `Transitioned from: ${prev.name} (HR-gated recovery)`;
+  }
+  return `Transitioned from: ${prev.name} (${prev.zone}, ${Math.round(prev.duration_s / 60)}min)`;
 }
 
 function getLatestHr(): number | null {
