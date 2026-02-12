@@ -67,7 +67,7 @@ function migrate(db: Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       plan_id INTEGER NOT NULL,
       elapsed_s REAL NOT NULL,
-      user_message TEXT NOT NULL,
+      user_message TEXT,
       response_message TEXT,
       response_power REAL,
       response_cadence REAL,
