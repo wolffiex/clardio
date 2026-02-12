@@ -9,6 +9,7 @@ import {
   type Phase,
   type WorkoutPlan,
   type CoachResponse,
+  isRecoveryPhase,
   buildPlanningSystemPrompt,
   buildPlanningUserPrompt,
   buildCoachingSystemPrompt,
@@ -38,14 +39,21 @@ let coachingPrompt: string = "";
 let coachHistory: Array<{
   elapsed: string;
   message: string;
-  power: number;
-  cadence: number;
+  power: number | null;
 }> = [];
 const MAX_COACH_HISTORY = 10;
 
 // Phase transition tracking
 let lastPhaseName: string | null = null;
 let lastPhasePosition: string | null = null;
+
+// Phase tracking for dynamic (recovery) phases
+let currentPhaseIndex: number = 0;
+let phaseStartTimes: number[] = []; // ms timestamp when each phase started
+
+// Power change throttling
+let lastPowerChangeTime: number = 0;
+let currentPowerTarget: number | null = null;
 
 // Coach notes (persistent memory across ticks)
 let coachNotes: Array<{ elapsed: string; note: string }> = [];
@@ -75,6 +83,10 @@ export async function startWorkout(): Promise<void> {
   lastLatencyMs = null;
   lastPhaseName = null;
   lastPhasePosition = null;
+  currentPhaseIndex = 0;
+  phaseStartTimes = [];
+  lastPowerChangeTime = 0;
+  currentPowerTarget = null;
   coachNotes = [];
   currentPlan = null;
   currentPlanId = null;
@@ -115,8 +127,17 @@ export async function startWorkout(): Promise<void> {
     console.log(`Plan generated in ${Date.now() - planStart}ms`);
     log(`Plan: ${currentPlan.summary}`);
     log(
-      `Phases: ${currentPlan.phases.map((p) => `${p.name} (${p.duration_minutes}min ${p.zone})`).join(" -> ")}`
+      `Phases: ${currentPlan.phases.map((p) => {
+        if (isRecoveryPhase(p)) {
+          return `${p.name} (recovery, HR<${p.target_hr})`;
+        }
+        return `${p.name} (${Math.round(p.duration_s / 60)}min ${p.zone})`;
+      }).join(" -> ")}`
     );
+
+    // Initialize phase tracking
+    phaseStartTimes = [workoutStartTime];
+    currentPhaseIndex = 0;
     console.log("--- Full Plan ---");
     console.log(JSON.stringify(currentPlan, null, 2));
     console.log("--- End Full Plan ---");
@@ -127,12 +148,23 @@ export async function startWorkout(): Promise<void> {
     // 3.5 Broadcast plan to SSE clients for timeline rendering
     broadcast("plan", {
       summary: currentPlan.summary,
-      phases: currentPlan.phases.map(phase => ({
-        name: phase.name,
-        duration_minutes: phase.duration_minutes,
-        zone: phase.zone,
-        position: phase.position,
-      }))
+      phases: currentPlan.phases.map(phase => {
+        if (isRecoveryPhase(phase)) {
+          return {
+            name: phase.name,
+            type: "recovery",
+            min_duration_s: phase.min_duration_s,
+            max_duration_s: phase.max_duration_s,
+            position: phase.position,
+          };
+        }
+        return {
+          name: phase.name,
+          duration_s: phase.duration_s,
+          zone: phase.zone,
+          position: phase.position,
+        };
+      })
     });
 
     // 4. Build coaching system prompt (done once, reused every tick — static)
@@ -148,12 +180,7 @@ export async function startWorkout(): Promise<void> {
     lastLatencyMs = Date.now() - initialCallStart;
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      updateCoachHistory(response);
-      broadcast("coach", { text: response.message });
-      broadcast("target", { power: response.power, cadence: response.cadence });
-      log(
-        `Coach: "${response.message}" | ${response.power}W ${response.cadence}rpm`
-      );
+      handleCoachResponse(response);
     }
 
     // 5.5 Save initial coach tick
@@ -192,6 +219,10 @@ export function stopWorkout(): void {
   coachHistory = [];
   samples = [];
   lastSampleTime = null;
+  currentPhaseIndex = 0;
+  phaseStartTimes = [];
+  lastPowerChangeTime = 0;
+  currentPowerTarget = null;
 }
 
 /**
@@ -245,6 +276,9 @@ export function getElapsed(): number {
 async function onCoachTick(): Promise<void> {
   if (!workoutActive || !currentPlan || samples.length === 0) return;
 
+  // Check for phase advancement (recovery phases may advance based on HR)
+  advancePhaseIfNeeded();
+
   const userMessage = buildUserMessage(false);
   console.log("--- Coach Input ---");
   console.log(userMessage);
@@ -256,15 +290,7 @@ async function onCoachTick(): Promise<void> {
     lastLatencyMs = Date.now() - callStart;
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      updateCoachHistory(response);
-      broadcast("coach", { text: response.message });
-      broadcast("target", {
-        power: response.power,
-        cadence: response.cadence,
-      });
-      log(
-        `Coach: "${response.message}" | ${response.power}W ${response.cadence}rpm`
-      );
+      handleCoachResponse(response);
     }
 
     // Save coach tick to DB
@@ -295,28 +321,29 @@ function buildUserMessage(isStart: boolean): string {
   sections.push(`WORKOUT TIME: ${elapsedStr}`);
   sections.push("");
 
-  // Plan and current phase (derived from elapsed time)
+  // Plan and current phase
   if (currentPlan) {
     const { currentPhase, phaseElapsed, phaseRemaining } =
-      getCurrentPhase(elapsed);
+      getCurrentPhaseInfo(elapsed);
 
     // Full plan overview (compact)
     sections.push("## Plan");
     sections.push(currentPlan.summary);
-    let accumulated = 0;
-    for (const phase of currentPlan.phases) {
-      const marker =
-        accumulated <= elapsed / 1000 / 60 &&
-        elapsed / 1000 / 60 < accumulated + phase.duration_minutes
-          ? "->"
-          : "  ";
-      sections.push(
-        `${marker} ${phase.name}: ${phase.duration_minutes}min ${phase.zone} ${phase.position} ${phase.cadence[0]}-${phase.cadence[1]}rpm`
-      );
-      accumulated += phase.duration_minutes;
+    for (let i = 0; i < currentPlan.phases.length; i++) {
+      const phase = currentPlan.phases[i];
+      const marker = i === currentPhaseIndex ? "->" : "  ";
+      if (isRecoveryPhase(phase)) {
+        sections.push(
+          `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
+        );
+      } else {
+        sections.push(
+          `${marker} ${phase.name}: ${Math.round(phase.duration_s / 60)}min ${phase.zone} ${phase.position} ${phase.cadence}rpm`
+        );
+      }
     }
 
-    // Zones (cached at workout start — never recalculated mid-workout)
+    // Zones (cached at workout start -- never recalculated mid-workout)
     sections.push("");
     sections.push("## Zones");
     sections.push(cachedZonesText);
@@ -326,69 +353,109 @@ function buildUserMessage(isStart: boolean): string {
     if (currentPhase) {
       // Detect phase transition
       const isNewPhase = lastPhaseName !== null && currentPhase.name !== lastPhaseName;
-      if (isNewPhase) {
-        const positionChanged = lastPhasePosition !== null && currentPhase.position !== lastPhasePosition;
-        sections.push(
-          `\u{1F504} NEW PHASE \u2014 was "${lastPhaseName}", now entering "${currentPhase.name}"`
-        );
-        sections.push(
-          `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
-        );
-        sections.push(
-          `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
-        );
-        if (positionChanged) {
+
+      if (isRecoveryPhase(currentPhase)) {
+        // Recovery phase display
+        const latestHr = getLatestHr();
+        if (isNewPhase) {
+          const positionChanged = lastPhasePosition !== null && currentPhase.position !== lastPhasePosition;
           sections.push(
-            `Position change: YES \u2014 was ${lastPhasePosition}, now ${currentPhase.position.toUpperCase()}`
+            `\u{1F504} NEW PHASE -- was "${lastPhaseName}", now entering "${currentPhase.name}"`
           );
+          sections.push(
+            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
+          );
+          sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
+          if (positionChanged) {
+            sections.push(
+              `Position change: YES -- was ${lastPhasePosition}, now ${currentPhase.position.toUpperCase()}`
+            );
+          } else {
+            sections.push(
+              `Position change: NO (both ${currentPhase.position})`
+            );
+          }
         } else {
           sections.push(
-            `Position change: NO (both ${currentPhase.position})`
+            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
           );
+          sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
         }
       } else {
-        sections.push(
-          `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
-        );
-        sections.push(
-          `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
-        );
-      }
-
-      // Upcoming phase preview when nearing end of current phase
-      if (phaseRemaining <= 30_000) {
-        const nextPhase = getNextPhase(currentPhase);
-        if (nextPhase) {
-          const remainingSec = Math.round(phaseRemaining / 1000);
+        // Timed phase display
+        if (isNewPhase) {
+          const positionChanged = lastPhasePosition !== null && currentPhase.position !== lastPhasePosition;
           sections.push(
-            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence[0]}-${nextPhase.cadence[1]}rpm`
+            `\u{1F504} NEW PHASE -- was "${lastPhaseName}", now entering "${currentPhase.name}"`
           );
+          sections.push(
+            `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
+          );
+          sections.push(
+            `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
+          );
+          if (currentPhase.hr_target) {
+            sections.push(`HR target: ${currentPhase.hr_target} (informational)`);
+          }
+          if (positionChanged) {
+            sections.push(
+              `Position change: YES -- was ${lastPhasePosition}, now ${currentPhase.position.toUpperCase()}`
+            );
+          } else {
+            sections.push(
+              `Position change: NO (both ${currentPhase.position})`
+            );
+          }
+        } else {
+          sections.push(
+            `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
+          );
+          sections.push(
+            `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
+          );
+          if (currentPhase.hr_target) {
+            sections.push(`HR target: ${currentPhase.hr_target} (informational)`);
+          }
+        }
+
+        // Upcoming phase preview when nearing end of current phase
+        if (phaseRemaining <= 30_000) {
+          const nextPhase = getNextPhase();
+          if (nextPhase) {
+            const remainingSec = Math.round(phaseRemaining / 1000);
+            if (isRecoveryPhase(nextPhase)) {
+              sections.push(
+                `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | recovery | ${nextPhase.position} | ${nextPhase.cadence}rpm`
+              );
+            } else {
+              sections.push(
+                `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence}rpm`
+              );
+            }
+          }
         }
       }
 
-      if (currentPhase.cues.length > 0) {
-        sections.push(`Cues: ${currentPhase.cues.join(", ")}`);
-      }
-      if (currentPhase.notes) {
-        sections.push(`Notes: ${currentPhase.notes}`);
+      const cues = isRecoveryPhase(currentPhase) ? undefined : currentPhase.form_cues;
+      if (cues && cues.length > 0) {
+        sections.push(`Cues: ${cues.join(", ")}`);
       }
 
       // Update tracking state after building the message
       lastPhaseName = currentPhase.name;
       lastPhasePosition = currentPhase.position;
     } else {
-      sections.push("Workout complete — cool down.");
+      sections.push("Workout complete -- cool down.");
     }
   }
 
-  // Current targets (from most recent coach response)
+  // Current targets (power only, from most recent coach response)
   sections.push("");
-  sections.push("## Current Targets");
-  if (coachHistory.length > 0) {
-    const last = coachHistory[coachHistory.length - 1];
-    sections.push(`Power: ${last.power}W | Cadence: ${last.cadence}rpm`);
+  sections.push("## Current Target");
+  if (currentPowerTarget !== null) {
+    sections.push(`Power: ${currentPowerTarget}W`);
   } else {
-    sections.push("No targets set yet.");
+    sections.push("No target set yet.");
   }
 
   // Recent coach messages
@@ -468,7 +535,7 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("");
     sections.push("## Status");
     const { currentPhase: statusPhase, phaseElapsed: statusPhaseElapsed } =
-      getCurrentPhase(elapsed);
+      getCurrentPhaseInfo(elapsed);
     const maxHr = samples.length > 0
       ? Math.max(...samples.map((s) => s.hr))
       : 0;
@@ -476,7 +543,9 @@ function buildUserMessage(isStart: boolean): string {
       ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
       : [];
 
-    const zonePart = statusPhase ? `${statusPhase.zone}` : "---";
+    const zonePart = statusPhase
+      ? (isRecoveryPhase(statusPhase) ? "Recovery" : statusPhase.zone)
+      : "---";
     if (phaseSamples.length > 0) {
       const avgPower = Math.round(
         phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
@@ -520,38 +589,117 @@ function formatElapsed(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-function getCurrentPhase(elapsedMs: number): {
+function getCurrentPhaseInfo(elapsedMs: number): {
   currentPhase: Phase | null;
   phaseElapsed: number;
   phaseRemaining: number;
 } {
-  if (!currentPlan)
+  if (!currentPlan || currentPhaseIndex >= currentPlan.phases.length)
     return { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
 
-  const elapsedMin = elapsedMs / 1000 / 60;
-  let accumulated = 0;
+  const phase = currentPlan.phases[currentPhaseIndex];
+  const phaseStartTime = phaseStartTimes[currentPhaseIndex] ?? workoutStartTime;
+  const phaseElapsed = Date.now() - phaseStartTime;
 
-  for (const phase of currentPlan.phases) {
-    if (elapsedMin < accumulated + phase.duration_minutes) {
-      const phaseElapsedMin = elapsedMin - accumulated;
-      return {
-        currentPhase: phase,
-        phaseElapsed: phaseElapsedMin * 60 * 1000,
-        phaseRemaining:
-          (phase.duration_minutes - phaseElapsedMin) * 60 * 1000,
-      };
-    }
-    accumulated += phase.duration_minutes;
+  if (isRecoveryPhase(phase)) {
+    // For recovery phases, remaining is based on max_duration_s
+    const maxDurationMs = phase.max_duration_s * 1000;
+    const phaseRemaining = Math.max(0, maxDurationMs - phaseElapsed);
+    return { currentPhase: phase, phaseElapsed, phaseRemaining };
+  } else {
+    const durationMs = phase.duration_s * 1000;
+    const phaseRemaining = Math.max(0, durationMs - phaseElapsed);
+    return { currentPhase: phase, phaseElapsed, phaseRemaining };
   }
-
-  return { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
 }
 
-function getNextPhase(currentPhase: Phase): Phase | null {
+function advancePhaseIfNeeded(): void {
+  if (!currentPlan || currentPhaseIndex >= currentPlan.phases.length) return;
+
+  const phase = currentPlan.phases[currentPhaseIndex];
+  const phaseStartTime = phaseStartTimes[currentPhaseIndex] ?? workoutStartTime;
+  const phaseElapsedMs = Date.now() - phaseStartTime;
+
+  let shouldAdvance = false;
+
+  if (isRecoveryPhase(phase)) {
+    const minElapsed = phaseElapsedMs >= phase.min_duration_s * 1000;
+    const maxElapsed = phaseElapsedMs >= phase.max_duration_s * 1000;
+    const latestHr = getLatestHr();
+    const hrBelowTarget = latestHr !== null && latestHr <= phase.target_hr;
+
+    if (maxElapsed) {
+      shouldAdvance = true;
+      log(`Recovery phase "${phase.name}" force-advanced (max duration reached)`);
+    } else if (minElapsed && hrBelowTarget) {
+      shouldAdvance = true;
+      log(`Recovery phase "${phase.name}" advanced (HR ${latestHr} <= target ${phase.target_hr})`);
+    }
+  } else {
+    const durationMs = phase.duration_s * 1000;
+    if (phaseElapsedMs >= durationMs) {
+      shouldAdvance = true;
+    }
+  }
+
+  if (shouldAdvance && currentPhaseIndex < currentPlan.phases.length - 1) {
+    currentPhaseIndex++;
+    phaseStartTimes[currentPhaseIndex] = Date.now();
+    log(`Phase advanced to: ${currentPlan.phases[currentPhaseIndex].name}`);
+  }
+}
+
+function getNextPhase(): Phase | null {
   if (!currentPlan) return null;
-  const idx = currentPlan.phases.indexOf(currentPhase);
-  if (idx === -1 || idx >= currentPlan.phases.length - 1) return null;
-  return currentPlan.phases[idx + 1];
+  if (currentPhaseIndex >= currentPlan.phases.length - 1) return null;
+  return currentPlan.phases[currentPhaseIndex + 1];
+}
+
+function getLatestHr(): number | null {
+  // Get the most recent HR from last 15 seconds of samples
+  const cutoff = Date.now() - 15_000;
+  const recent = samples.filter((s) => s.receivedAt >= cutoff && s.hr > 0);
+  if (recent.length === 0) return null;
+  return Math.round(
+    recent.reduce((sum, s) => sum + s.hr, 0) / recent.length
+  );
+}
+
+/**
+ * Handle a coach response: apply power throttling, broadcast targets from plan + coach
+ */
+function handleCoachResponse(response: CoachResponse): void {
+  const now = Date.now();
+
+  // Apply power throttling: only change power if 30s have passed since last change
+  let effectivePower = currentPowerTarget;
+  if (response.power !== null && response.power !== currentPowerTarget) {
+    if (now - lastPowerChangeTime >= 30_000 || currentPowerTarget === null) {
+      effectivePower = response.power;
+      currentPowerTarget = response.power;
+      lastPowerChangeTime = now;
+    } else {
+      log(`Power change throttled: coach wanted ${response.power}W, keeping ${currentPowerTarget}W`);
+    }
+  }
+
+  updateCoachHistory(response);
+  broadcast("coach", { text: response.message });
+
+  // Broadcast target: power from coach, cadence + position from plan phase
+  const { currentPhase } = getCurrentPhaseInfo(getElapsedMs());
+  const phaseCadence = currentPhase ? currentPhase.cadence : null;
+  const phasePosition = currentPhase ? currentPhase.position : null;
+
+  broadcast("target", {
+    power: effectivePower,
+    cadence: phaseCadence,
+    position: phasePosition,
+  });
+
+  log(
+    `Coach: "${response.message}" | ${effectivePower ?? "---"}W`
+  );
 }
 
 function getRecentSamples(windowMs: number): Sample[] {
@@ -632,7 +780,6 @@ function updateCoachHistory(response: CoachResponse): void {
     elapsed,
     message: response.message,
     power: response.power,
-    cadence: response.cadence,
   });
   if (coachHistory.length > MAX_COACH_HISTORY) {
     coachHistory.shift();

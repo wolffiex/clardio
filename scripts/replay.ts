@@ -14,6 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   type Phase,
   type CoachResponse,
+  isRecoveryPhase,
   buildCoachingSystemPrompt,
   getZonesText,
   coachSchema,
@@ -116,7 +117,13 @@ function listPlans(): void {
   console.log("-".repeat(80));
   for (const p of plans) {
     const phases: Phase[] = JSON.parse(p.phases);
-    const totalPlanMin = phases.reduce((s, ph) => s + ph.duration_minutes, 0);
+    const totalPlanSec = phases.reduce((s, ph) => {
+      if (isRecoveryPhase(ph)) return s + ph.max_duration_s;
+      // Handle legacy duration_minutes format
+      if ("duration_minutes" in ph) return s + (ph as any).duration_minutes * 60;
+      return s + ph.duration_s;
+    }, 0);
+    const totalPlanMin = Math.round(totalPlanSec / 60);
     const actualDuration = p.span_ms ? formatDuration(p.span_ms) : "no samples";
     const phaseNames = phases.map((ph) => ph.name).join(", ");
     const tickInfo = p.tick_count > 0 ? ` | ${p.tick_count} ticks` : "";
@@ -138,25 +145,33 @@ function listPlans(): void {
 // Phase computation from elapsed time
 // ---------------------------------------------------------------------------
 
+function getPhaseDurationS(phase: Phase): number {
+  if (isRecoveryPhase(phase)) return phase.max_duration_s;
+  // Handle legacy duration_minutes format
+  if ("duration_minutes" in phase) return (phase as any).duration_minutes * 60;
+  return phase.duration_s;
+}
+
 function getCurrentPhase(
   phases: Phase[],
   elapsedMs: number
 ): { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number; phaseIndex: number } {
-  const elapsedMin = elapsedMs / 1000 / 60;
+  const elapsedS = elapsedMs / 1000;
   let accumulated = 0;
 
   for (let i = 0; i < phases.length; i++) {
     const phase = phases[i];
-    if (elapsedMin < accumulated + phase.duration_minutes) {
-      const phaseElapsedMin = elapsedMin - accumulated;
+    const durationS = getPhaseDurationS(phase);
+    if (elapsedS < accumulated + durationS) {
+      const phaseElapsedS = elapsedS - accumulated;
       return {
         currentPhase: phase,
-        phaseElapsed: phaseElapsedMin * 60 * 1000,
-        phaseRemaining: (phase.duration_minutes - phaseElapsedMin) * 60 * 1000,
+        phaseElapsed: phaseElapsedS * 1000,
+        phaseRemaining: (durationS - phaseElapsedS) * 1000,
         phaseIndex: i,
       };
     }
-    accumulated += phase.duration_minutes;
+    accumulated += durationS;
   }
 
   return { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0, phaseIndex: -1 };
@@ -246,17 +261,29 @@ function buildReplayUserMessage(
   // Plan overview
   sections.push("## Plan");
   sections.push(planSummary);
-  const elapsedMin = offsetMs / 1000 / 60;
+  const elapsedS = offsetMs / 1000;
   let accumulated = 0;
   for (const phase of phases) {
+    const durationS = getPhaseDurationS(phase);
     const marker =
-      accumulated <= elapsedMin && elapsedMin < accumulated + phase.duration_minutes
+      accumulated <= elapsedS && elapsedS < accumulated + durationS
         ? "->"
         : "  ";
-    sections.push(
-      `${marker} ${phase.name}: ${phase.duration_minutes}min ${phase.zone} ${phase.position} ${phase.cadence[0]}-${phase.cadence[1]}rpm`
-    );
-    accumulated += phase.duration_minutes;
+    if (isRecoveryPhase(phase)) {
+      sections.push(
+        `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
+      );
+    } else {
+      const cadenceStr = typeof phase.cadence === "string"
+        ? phase.cadence
+        : `${(phase as any).cadence[0]}-${(phase as any).cadence[1]}`;
+      const zoneName = phase.zone;
+      const durationMin = Math.round(durationS / 60);
+      sections.push(
+        `${marker} ${phase.name}: ${durationMin}min ${zoneName} ${phase.position} ${cadenceStr}rpm`
+      );
+    }
+    accumulated += durationS;
   }
 
   // Zones
@@ -269,27 +296,47 @@ function buildReplayUserMessage(
   sections.push("## Current Phase");
   const { currentPhase, phaseElapsed, phaseRemaining, phaseIndex } = getCurrentPhase(phases, offsetMs);
   if (currentPhase) {
-    sections.push(
-      `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence[0]}-${currentPhase.cadence[1]}rpm`
-    );
-    sections.push(
-      `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
-    );
-
-    // Upcoming phase preview when nearing end
-    if (phaseRemaining <= 30_000 && phaseIndex < phases.length - 1) {
-      const nextPhase = phases[phaseIndex + 1];
-      const remainingSec = Math.round(phaseRemaining / 1000);
+    if (isRecoveryPhase(currentPhase)) {
       sections.push(
-        `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence[0]}-${nextPhase.cadence[1]}rpm`
+        `Recovery -- target HR: ${currentPhase.target_hr}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
       );
-    }
+      sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
+    } else {
+      const cadenceStr = typeof currentPhase.cadence === "string"
+        ? currentPhase.cadence
+        : `${(currentPhase as any).cadence[0]}-${(currentPhase as any).cadence[1]}`;
+      sections.push(
+        `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${cadenceStr}rpm`
+      );
+      sections.push(
+        `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
+      );
+      if (currentPhase.hr_target) {
+        sections.push(`HR target: ${currentPhase.hr_target} (informational)`);
+      }
 
-    if (currentPhase.cues.length > 0) {
-      sections.push(`Cues: ${currentPhase.cues.join(", ")}`);
-    }
-    if (currentPhase.notes) {
-      sections.push(`Notes: ${currentPhase.notes}`);
+      // Upcoming phase preview when nearing end
+      if (phaseRemaining <= 30_000 && phaseIndex < phases.length - 1) {
+        const nextPhase = phases[phaseIndex + 1];
+        const remainingSec = Math.round(phaseRemaining / 1000);
+        if (isRecoveryPhase(nextPhase)) {
+          sections.push(
+            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | recovery | ${nextPhase.position} | ${nextPhase.cadence}rpm`
+          );
+        } else {
+          const nextCadenceStr = typeof nextPhase.cadence === "string"
+            ? nextPhase.cadence
+            : `${(nextPhase as any).cadence[0]}-${(nextPhase as any).cadence[1]}`;
+          sections.push(
+            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextCadenceStr}rpm`
+          );
+        }
+      }
+
+      const cues = currentPhase.form_cues ?? (currentPhase as any).cues;
+      if (cues && cues.length > 0) {
+        sections.push(`Cues: ${cues.join(", ")}`);
+      }
     }
   } else {
     sections.push("Workout complete -- cool down.");
@@ -392,15 +439,17 @@ function buildReplayUserMessage(
   let accum = 0;
   for (const phase of phases) {
     if (phase === statusPhase) {
-      phaseStartMs = accum * 60 * 1000;
+      phaseStartMs = accum * 1000;
       break;
     }
-    accum += phase.duration_minutes;
+    accum += getPhaseDurationS(phase);
   }
   const phaseStartTimestamp = firstTimestamp + phaseStartMs;
   const phaseSamples = samplesUpToOffset.filter((s) => s.timestamp_ms >= phaseStartTimestamp);
 
-  const zonePart = statusPhase ? statusPhase.zone : "---";
+  const zonePart = statusPhase
+    ? (isRecoveryPhase(statusPhase) ? "Recovery" : statusPhase.zone)
+    : "---";
   if (phaseSamples.length > 0) {
     const pavg = (arr: (number | null)[]) => {
       const valid = arr.filter((v): v is number => v !== null && v > 0);
@@ -499,7 +548,7 @@ function listTicks(db: Database, planId: number): void {
       : "(no response)";
     const latency = tick.latency_ms !== null ? `${tick.latency_ms}ms` : "---";
     const targets = tick.response_power !== null
-      ? `${tick.response_power}W ${tick.response_cadence}rpm`
+      ? `${tick.response_power}W`
       : "---";
     console.log(`  ${elapsed}  ${latency}  ${targets}  ${msg}`);
   }
@@ -561,7 +610,8 @@ async function main() {
   }
 
   const phases: Phase[] = JSON.parse(plan.phases);
-  const totalPlanMin = phases.reduce((s, ph) => s + ph.duration_minutes, 0);
+  const totalPlanSec = phases.reduce((s, ph) => s + getPhaseDurationS(ph), 0);
+  const totalPlanMin = Math.round(totalPlanSec / 60);
 
   // Derive a summary -- the plan table does not store the WorkoutPlan summary,
   // only the completion summary. Use the phase names as a stand-in.
@@ -617,8 +667,7 @@ async function main() {
     console.log("--- ACTUAL COACH RESPONSE ---");
     if (closestTick.response_message !== null) {
       console.log(`  message:  "${closestTick.response_message}"`);
-      console.log(`  power:    ${closestTick.response_power}W`);
-      console.log(`  cadence:  ${closestTick.response_cadence}rpm`);
+      console.log(`  power:    ${closestTick.response_power ?? "---"}W`);
       console.log(`  note:     ${closestTick.response_note ?? "(none)"}`);
       console.log(`  latency:  ${closestTick.latency_ms ?? "---"}ms`);
     } else {
@@ -686,8 +735,7 @@ async function main() {
     if (response) {
       console.log(`Response (${latency}ms):`);
       console.log(`  message:  "${response.message}"`);
-      console.log(`  power:    ${response.power}W`);
-      console.log(`  cadence:  ${response.cadence}rpm`);
+      console.log(`  power:    ${response.power ?? "---"}W`);
       console.log(`  note:     ${response.note ?? "(none)"}`);
     } else {
       console.log("No response from coach API.");

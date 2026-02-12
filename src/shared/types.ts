@@ -17,10 +17,11 @@ export interface MetricsBroadcast extends MetricsEvent {
   elapsed: number;
 }
 
-// target event - current target from coach
+// target event - power from coach, cadence + position from plan phase
 export interface TargetEvent {
-  power: number;
-  cadence: number;
+  power: number | null;
+  cadence: string | null;
+  position: string | null;
 }
 
 // Union type for all SSE events

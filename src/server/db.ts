@@ -76,6 +76,8 @@ function migrate(db: Database): void {
       FOREIGN KEY (plan_id) REFERENCES plans(id)
     )
   `);
+  // Note: response_cadence column kept for backward compat with old data.
+  // New code does not write to it.
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_coach_ticks_plan_id ON coach_ticks(plan_id)
@@ -143,7 +145,7 @@ export type CoachTickRow = {
   user_message: string;
   response_message: string | null;
   response_power: number | null;
-  response_cadence: number | null;
+  response_cadence: number | null; // legacy, no longer written
   response_note: string | null;
   latency_ms: number | null;
 };
@@ -152,20 +154,19 @@ export function saveCoachTick(
   planId: number,
   elapsedS: number,
   userMessage: string,
-  response: { message: string; power: number; cadence: number; note: string | null } | null,
+  response: { message: string; power: number | null; note: string | null } | null,
   latencyMs: number | null
 ): void {
   const db = getDb();
   db.run(
-    `INSERT INTO coach_ticks (plan_id, elapsed_s, user_message, response_message, response_power, response_cadence, response_note, latency_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO coach_ticks (plan_id, elapsed_s, user_message, response_message, response_power, response_note, latency_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       planId,
       elapsedS,
       userMessage,
       response?.message ?? null,
       response?.power ?? null,
-      response?.cadence ?? null,
       response?.note ?? null,
       latencyMs,
     ]

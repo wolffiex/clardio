@@ -55,17 +55,17 @@ if (arg === "coaching" || arg === "both") {
 
 ## Plan
 Sweet spot with standing surges
-   Easy Spin: 5min Z1 Recovery seated 70-80rpm
-   Build to Endurance: 5min Z2 Endurance seated 75-85rpm
-   Opener Surge: 1min Z4 Threshold standing 85-95rpm
-   Recovery: 2min Z1 Recovery seated 70-80rpm
+   Easy Spin: 5min Z1 seated 70-80rpm
+   Build to Endurance: 5min Z2 seated 75-85rpm
+   Opener Surge: 1min Z4 standing 85-95rpm
+   Recovery: recovery (HR<120) seated 70-80rpm
 -> Sweet Spot Block 1: 8min Sweet Spot seated 85-95rpm
-   Standing Surge: 1min Z4 Threshold standing 80-90rpm
+   Standing Surge: 1min Z4 standing 80-90rpm
    Sweet Spot Block 2: 8min Sweet Spot seated 85-95rpm
-   Standing Surge: 1min Z4 Threshold standing 80-90rpm
+   Standing Surge: 1min Z4 standing 80-90rpm
    Sweet Spot Block 3: 8min Sweet Spot seated 85-95rpm
-   Easy Spin Cooldown: 3min Z1 Recovery seated 70-80rpm
-   Final Cooldown: 3min Z1 Recovery seated 65-75rpm
+   Easy Spin Cooldown: 3min Z1 seated 65-75rpm
+   Final Cooldown: 3min Z1 seated 65-75rpm
 
 ## Zones
 ${zones}
@@ -73,11 +73,11 @@ ${zones}
 ## Current Phase
 Sweet Spot Block 1 | Sweet Spot | seated | 85-95rpm
 Phase time: 3:20 elapsed, 4:40 remaining
+HR target: 140-150 (informational)
 Cues: smooth circles, drop heels, quiet hips, rhythmic breathing
-Notes: Steady sweet spot effort at 88-94% FTP
 
-## Current Targets
-Power: 195W | Cadence: 90rpm
+## Current Target
+Power: 195W
 
 ## Recent Coach Messages
 [15:20] "Settling in. Good rhythm."

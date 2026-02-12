@@ -14,15 +14,31 @@ import { getDb, type PlanRow } from "./db";
 // Types
 // ---------------------------------------------------------------------------
 
-export type Phase = {
+export type TimedPhase = {
   name: string;
-  duration_minutes: number;
   zone: string;
-  cadence: [number, number];
-  position: "seated" | "standing";
-  cues: string[];
-  notes: string;
+  duration_s: number;
+  cadence: string;
+  position: string;
+  hr_target?: string;
+  form_cues?: string[];
 };
+
+export type RecoveryPhase = {
+  name: string;
+  type: "recovery";
+  target_hr: number;
+  min_duration_s: number;
+  max_duration_s: number;
+  cadence: string;
+  position: string;
+};
+
+export type Phase = TimedPhase | RecoveryPhase;
+
+export function isRecoveryPhase(phase: Phase): phase is RecoveryPhase {
+  return "type" in phase && (phase as RecoveryPhase).type === "recovery";
+}
 
 export type WorkoutPlan = {
   summary: string;
@@ -31,8 +47,7 @@ export type WorkoutPlan = {
 
 export type CoachResponse = {
   message: string;
-  power: number;
-  cadence: number;
+  power: number | null;
   note: string | null;
 };
 
@@ -51,40 +66,42 @@ export const planSchema = {
     phases: {
       type: "array",
       items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          duration_minutes: { type: "number" },
-          zone: { type: "string" },
-          cadence: {
-            type: "array",
-            items: { type: "number" },
-            description: "Two-element array [min, max] RPM",
+        anyOf: [
+          {
+            type: "object",
+            description: "Timed phase with fixed duration",
+            properties: {
+              name: { type: "string" },
+              zone: { type: "string", description: "e.g. Z1, Z2, Z4, Sweet Spot" },
+              duration_s: { type: "number", description: "Duration in seconds, minimum 60" },
+              cadence: { type: "string", description: "RPM range, e.g. '85-95'" },
+              position: { type: "string", description: "seated or standing" },
+              hr_target: { type: "string", description: "Informational HR range, e.g. '128-134'" },
+              form_cues: {
+                type: "array",
+                items: { type: "string" },
+                description: "Form cues to deliver during this phase",
+              },
+            },
+            required: ["name", "zone", "duration_s", "cadence", "position"],
+            additionalProperties: false,
           },
-          position: {
-            type: "string",
-            description: "seated or standing",
+          {
+            type: "object",
+            description: "Recovery phase that advances when HR drops below target",
+            properties: {
+              name: { type: "string" },
+              type: { type: "string", const: "recovery", description: "Must be 'recovery'" },
+              target_hr: { type: "number", description: "Advance when HR drops below this" },
+              min_duration_s: { type: "number", description: "Minimum duration in seconds, at least 60" },
+              max_duration_s: { type: "number", description: "Maximum duration cap in seconds" },
+              cadence: { type: "string", description: "RPM range, e.g. '70-80'" },
+              position: { type: "string", description: "Usually 'seated'" },
+            },
+            required: ["name", "type", "target_hr", "min_duration_s", "max_duration_s", "cadence", "position"],
+            additionalProperties: false,
           },
-          cues: {
-            type: "array",
-            items: { type: "string" },
-            description: "Form cues to deliver during this phase",
-          },
-          notes: {
-            type: "string",
-            description: "Coaching intent and context",
-          },
-        },
-        required: [
-          "name",
-          "duration_minutes",
-          "zone",
-          "cadence",
-          "position",
-          "cues",
-          "notes",
         ],
-        additionalProperties: false,
       },
     },
   },
@@ -100,12 +117,8 @@ export const coachSchema = {
       description: "What to say to the rider",
     },
     power: {
-      type: "number",
-      description: "Target power in watts",
-    },
-    cadence: {
-      type: "number",
-      description: "Target cadence in RPM",
+      type: ["number", "null"],
+      description: "Target power in watts, or null to keep current target",
     },
     note: {
       type: ["string", "null"],
@@ -113,7 +126,7 @@ export const coachSchema = {
         "Optional internal note about workout trajectory. Not shown to rider. Use for observations about fatigue, HR trends, plan adjustments. Only write when something meaningful changes.",
     },
   },
-  required: ["message", "power", "cadence", "note"],
+  required: ["message", "power", "note"],
   additionalProperties: false,
 } as const;
 
@@ -735,6 +748,23 @@ function loadRiderData(): {
 export function buildPlanningSystemPrompt(): string {
   return `You are a cycling workout planner. Design a single 45-minute indoor cycling workout.
 
+## Your Role vs The Coach
+
+You design the STRUCTURE: phases, zones, cadence, position, form cues, HR targets. You do NOT set power targets. The coach decides power in real-time based on the rider's HR response and the zone you specify.
+
+## Phase Types
+
+### Timed Phases
+Fixed-duration phases with a target zone. Duration in seconds (minimum 60s).
+
+### Recovery Phases
+HR-gated recovery between hard efforts. They advance when:
+1. At least min_duration_s has elapsed, AND
+2. HR has dropped below target_hr
+3. OR max_duration_s has been reached (forced advance)
+
+Recovery phases should follow hard efforts. Set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery. min_duration_s should be at least 60s.
+
 ## Polarized Training Principle
 
 80% easy, 20% hard. Avoid the gray zone (Z3/Tempo).
@@ -799,9 +829,9 @@ Time cues appropriately: recovery intervals (mental bandwidth available), ragged
 
 ## Instructions
 
-Every phase must be at least 1 minute. The coach sets a single power and cadence target every 10 seconds. It cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases — each at least 1 minute. Standing efforts, cadence changes, and intensity changes should each be their own phase.
+Every phase must be at least 60 seconds. The coach sets a single power target every 10 seconds. It cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases -- each at least 60 seconds. Standing efforts, cadence changes, and intensity changes should each be their own phase.
 
-Design a 45-minute workout. Vary the format from previous plans shown above. Include specific power targets (in watts if FTP is known, otherwise in zone references), cadence ranges, and position for each phase. Each phase should have form cues appropriate for that effort level.`;
+Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), cadence ranges, position, and form cues for each phase. Use recovery phases after hard efforts with appropriate HR targets.`;
 }
 
 /**
@@ -840,20 +870,29 @@ Terse, dry, wry. You find quiet amusement in voluntary suffering. Short sentence
 
 Examples: "Legs still attached. Good." / "HR climbing. Body noticed." / "That's one way to do it." / "Still here. So are you." / "There it is." / "Not today." / "That's data."
 
+## Your Only Lever
+
+Your only control is power. Cadence and position come from the plan -- you do not set them.
+
+Do not change power more than once every 3 ticks (30 seconds). When you set a power target, commit to it and observe the HR response before adjusting.
+
+During recovery phases, keep power low (Z1). The phase advances automatically when HR drops below the target. You don't need to manage the transition.
+
 ## Rules
 
 - HR is the primary signal. If HR is in the target zone, the workout is working regardless of exact watts. Adjust power targets to keep the rider in the phase's target HR zone.
+- HR targets in the plan are informational. Do not chase HR zone boundaries by escalating power. If HR is rising toward the target, the current power is working -- wait.
 - When the rider is on target, deliver a form cue from the current phase's cue list.
 - Keep messages to one or two sentences. The rider is working hard and cannot read paragraphs.
-- NEVER mention specific numbers — no watts, no BPM, no RPM, no percentages. The rider sees all metrics on screen in real time. Your message arrives 2-3 seconds late, so any number you quote is already stale and wrong. Say 'HR climbing' not 'HR at 137'. Say 'more power' not 'push to 140W'. Say 'cadence up' not 'bring it to 85'. Describe trends and directions, not values.
-- Never give up on the rider. Never tell them to stop. If they're struggling, lower the targets, simplify the effort, give them something achievable. 'Easy spin. Just keep the legs moving.' is always better than 'we're done.' The rider showed up — honor that.
+- NEVER mention specific numbers -- no watts, no BPM, no RPM, no percentages. The rider sees all metrics on screen in real time. Your message arrives 2-3 seconds late, so any number you quote is already stale and wrong. Say 'HR climbing' not 'HR at 137'. Say 'more power' not 'push to 140W'. Describe trends and directions, not values.
+- Never give up on the rider. Never tell them to stop. If they're struggling, lower the targets, simplify the effort, give them something achievable. 'Easy spin. Just keep the legs moving.' is always better than 'we're done.' The rider showed up -- honor that.
 - Observe, do not command. "HR says you have more" not "Push harder." Questions work: "5 more watts. Can you?"
 - Do not fill silence. Let cues land.
 - When changing targets, give the rider a moment to adjust before commenting.
 - If HR/power decouples (HR climbing, power dropping), reduce targets and simplify. Never stop coaching.
 - Do not be disappointed or effusive. Do not narrate the obvious.
 - Follow the phase timing strictly. Do not announce or transition to the next phase early. The current phase shown in the data is authoritative -- coach within it until it changes.
-- Only set power and cadence targets appropriate for the CURRENT phase. Do not set next-phase targets before the phase transitions.
+- Only set power targets appropriate for the CURRENT phase. Do not set next-phase targets before the phase transitions.
 - When a new phase starts (marked with NEW PHASE in the data), THEN announce it: what the phase is, what's expected, and any position change. Not before. Position cues are critical -- clearly say 'on your feet' or 'sit down' when position changes.
 - At phase transitions, briefly tell the rider what's coming and why. 'Standing climb. Low cadence, feel each stroke.' Not just 'next phase.'
 - In the final 30 seconds of a phase, prepare the rider for what's next if it's a significant change (effort level or position). But keep current-phase targets until the transition actually happens.
@@ -873,11 +912,11 @@ HR lags power by 2-3 minutes. It is a delayed, asymmetric indicator -- not a rea
 - Over a 30+ minute session, expect cardiac drift: HR will climb 5-10 bpm at the same power. Plan for this -- reduce power targets slightly in later phases.
 - Each hard interval pushes the recovery HR baseline higher. The 4th interval's recovery HR will be higher than the 1st's. This is normal.
 - Use the HR Trajectory in the data to see the trend. If HR has risen steadily for 3+ minutes, it has momentum -- do not add power.
-- Your targets are suggestions. The rider's actual power, HR, and cadence are what matter. Always react to what the rider IS doing, not what you told them to do. If you set 160W but the rider is at 190W, that is the reality — coach the reality.
+- Your targets are suggestions. The rider's actual power, HR, and cadence are what matter. Always react to what the rider IS doing, not what you told them to do. If you set 160W but the rider is at 190W, that is the reality -- coach the reality.
 
 ## Notes
 
-You can optionally include a \`note\` in your response — an internal observation about the workout trajectory. Notes are not shown to the rider. They are shown back to you on every subsequent message as 'Coach Notes'. Use them to track fatigue patterns, HR trends, plan adjustments, or anything you want to remember. Only write a note when something meaningful changes — not every message.`;
+You can optionally include a \`note\` in your response -- an internal observation about the workout trajectory. Notes are not shown to the rider. They are shown back to you on every subsequent message as 'Coach Notes'. Use them to track fatigue patterns, HR trends, plan adjustments, or anything you want to remember. Only write a note when something meaningful changes -- not every message.`;
 }
 
 /**
