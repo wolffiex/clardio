@@ -24,6 +24,7 @@ const COACH_INTERVAL_MS = 10_000;
 
 // Latency tracking
 let lastLatencyMs: number | null = null;
+let tickLatencies: number[] = [];
 
 // Workout state
 let workoutActive = false;
@@ -81,6 +82,7 @@ export async function startWorkout(): Promise<void> {
   coachHistory = [];
   lastSampleTime = null;
   lastLatencyMs = null;
+  tickLatencies = [];
   lastPhaseName = null;
   lastPhasePosition = null;
   currentPhaseIndex = 0;
@@ -178,6 +180,7 @@ export async function startWorkout(): Promise<void> {
     const initialCallStart = Date.now();
     const response = await sendCoachMessage(coachingPrompt, initialMessage);
     lastLatencyMs = Date.now() - initialCallStart;
+    tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
       handleCoachResponse(response);
@@ -288,6 +291,7 @@ async function onCoachTick(): Promise<void> {
     const callStart = Date.now();
     const response = await sendCoachMessage(coachingPrompt, userMessage);
     lastLatencyMs = Date.now() - callStart;
+    tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
       handleCoachResponse(response);
@@ -317,8 +321,20 @@ function buildUserMessage(isStart: boolean): string {
   const elapsedStr = formatElapsed(elapsed);
   const sections: string[] = [];
 
-  // Workout timestamp at the very top
+  // Timing info at the very top
   sections.push(`WORKOUT TIME: ${elapsedStr}`);
+  if (!isStart && tickLatencies.length > 0) {
+    const recentLatencies = tickLatencies.slice(-5);
+    const avgLatencyMs =
+      recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
+    const avgLatencySec = avgLatencyMs / 1000;
+    const displayTime = elapsed + avgLatencyMs;
+    sections.push("");
+    sections.push("## Timing");
+    sections.push(`Elapsed: ${elapsedStr}`);
+    sections.push(`Avg coach latency: ${avgLatencySec.toFixed(1)}s`);
+    sections.push(`Your message displays at ~${formatElapsed(displayTime)}`);
+  }
   sections.push("");
 
   // Plan and current phase
@@ -486,49 +502,50 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Recent metrics (last 30s) - compact summary
+  // Recent metrics (15s rolling averages with trend indicators)
   if (!isStart) {
     sections.push("");
-    const recentSamples = getRecentSamples(30_000);
-    if (recentSamples.length > 0) {
-      const powers = recentSamples.map((s) => s.power);
-      const hrs = recentSamples.map((s) => s.hr);
-      const cadences = recentSamples.map((s) => s.cadence);
+    const currentSamples = getRecentSamples(15_000);
+    const previousSamples = getSampleWindow(15_000, 30_000);
 
+    if (currentSamples.length > 0) {
       const avg = (arr: number[]) =>
         Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
 
-      sections.push("## Recent Metrics (last 30s)");
+      const curPower = avg(currentSamples.map((s) => s.power));
+      const curHr = avg(currentSamples.map((s) => s.hr));
+      const curCadence = avg(currentSamples.map((s) => s.cadence));
+
+      // Compute trend indicators by comparing current 15s to previous 15s
+      let powerTrend = "\u2192";
+      let hrTrend = "\u2192";
+      let cadenceTrend = "\u2192";
+
+      if (previousSamples.length > 0) {
+        const prevPower = avg(previousSamples.map((s) => s.power));
+        const prevHr = avg(previousSamples.map((s) => s.hr));
+        const prevCadence = avg(previousSamples.map((s) => s.cadence));
+
+        const powerDiff = curPower - prevPower;
+        if (powerDiff > 10) powerTrend = "\u2191";
+        else if (powerDiff < -10) powerTrend = "\u2193";
+
+        const hrDiff = curHr - prevHr;
+        if (hrDiff > 3) hrTrend = "\u2191";
+        else if (hrDiff < -3) hrTrend = "\u2193";
+
+        const cadenceDiff = curCadence - prevCadence;
+        if (cadenceDiff > 5) cadenceTrend = "\u2191";
+        else if (cadenceDiff < -5) cadenceTrend = "\u2193";
+      }
+
+      sections.push("## Recent Metrics (15s avg)");
       sections.push(
-        `Power: avg ${avg(powers)}W, range ${Math.min(...powers)}-${Math.max(...powers)}W`
-      );
-      sections.push(
-        `HR: avg ${avg(hrs)}bpm, range ${Math.min(...hrs)}-${Math.max(...hrs)}bpm`
-      );
-      sections.push(
-        `Cadence: avg ${avg(cadences)}rpm, range ${Math.min(...cadences)}-${Math.max(...cadences)}rpm`
+        `Power ${curPower}W${powerTrend} | HR ${curHr}${hrTrend} | Cadence ${curCadence}${cadenceTrend}`
       );
     } else {
-      sections.push("## Recent Metrics (last 30s)");
-      sections.push("No samples in last 30s");
-    }
-
-    // HR trend (last 45s)
-    const trendSamples = getRecentSamples(45_000);
-    if (trendSamples.length >= 2) {
-      const firstHr =
-        trendSamples.slice(0, 3).reduce((s, x) => s + x.hr, 0) /
-        Math.min(3, trendSamples.length);
-      const lastHr =
-        trendSamples.slice(-3).reduce((s, x) => s + x.hr, 0) /
-        Math.min(3, trendSamples.length);
-      const diff = lastHr - firstHr;
-      let trend = "heart rate steady";
-      if (diff > 10) trend = "heart rate climbing quickly";
-      else if (diff > 3) trend = "heart rate climbing";
-      else if (diff < -10) trend = "heart rate falling quickly";
-      else if (diff < -3) trend = "heart rate falling";
-      sections.push(`Trend: ${trend}`);
+      sections.push("## Recent Metrics (15s avg)");
+      sections.push("No samples in last 15s");
     }
 
     // Single-line status at the very end
@@ -705,6 +722,17 @@ function handleCoachResponse(response: CoachResponse): void {
 function getRecentSamples(windowMs: number): Sample[] {
   const cutoff = Date.now() - windowMs;
   return samples.filter((s) => s.receivedAt >= cutoff);
+}
+
+/**
+ * Get samples from a window between startAgoMs and endAgoMs in the past.
+ * e.g. getSampleWindow(15000, 30000) returns samples from 15-30s ago.
+ */
+function getSampleWindow(startAgoMs: number, endAgoMs: number): Sample[] {
+  const now = Date.now();
+  const recentCutoff = now - startAgoMs;
+  const oldCutoff = now - endAgoMs;
+  return samples.filter((s) => s.receivedAt >= oldCutoff && s.receivedAt < recentCutoff);
 }
 
 /**

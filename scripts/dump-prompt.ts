@@ -53,6 +53,11 @@ if (arg === "coaching" || arg === "both") {
 
   const sampleUserMessage = `WORKOUT TIME: 15:40
 
+## Timing
+Elapsed: 15:40
+Avg coach latency: 7.2s
+Your message displays at ~15:47
+
 ## Plan
 Sweet spot with standing surges
    Easy Spin: 5min Z1 seated 70-80rpm
@@ -91,11 +96,8 @@ Power: 195W
 5m ago: 110 | 4m ago: 122 | 3m ago: 133 | 2m ago: 140 | 1m ago: 144 | now: 146
 Rising +36 bpm over 5 min
 
-## Recent Metrics (last 30s)
-Power: avg 192W, range 185-200W
-HR: avg 146bpm, range 144-148bpm
-Cadence: avg 89rpm, range 87-92rpm
-Trend: heart rate steady
+## Recent Metrics (15s avg)
+Power 192W\u2192 | HR 146\u2191 | Cadence 89\u2192
 
 ## Status
 Sweet Spot | Phase avg: 193W 145bpm 89rpm | Max HR: 152 | Elapsed: 15:40`;
