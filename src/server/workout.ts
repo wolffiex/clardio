@@ -57,6 +57,10 @@ let phaseStartTimes: number[] = []; // ms timestamp when each phase started
 let lastPowerChangeTime: number = 0;
 let currentPowerTarget: number | null = null;
 
+// Recovery HR gate debounce: tracks when HR first dropped below target
+// HR must stay below target for 15s sustained before advancing
+let recoveryGateClearedAt: number | null = null;
+
 // Coach notes (persistent memory across ticks)
 let coachNotes: Array<{ elapsed: string; note: string }> = [];
 
@@ -93,6 +97,7 @@ export async function startWorkout(): Promise<void> {
   phaseStartTimes = [];
   lastPowerChangeTime = 0;
   currentPowerTarget = null;
+  recoveryGateClearedAt = null;
   coachNotes = [];
   currentPlan = null;
   currentPlanId = null;
@@ -235,6 +240,7 @@ export function stopWorkout(): void {
   phaseStartTimes = [];
   lastPowerChangeTime = 0;
   currentPowerTarget = null;
+  recoveryGateClearedAt = null;
 }
 
 /**
@@ -680,14 +686,26 @@ function advancePhaseIfNeeded(): void {
     const minElapsed = phaseElapsedMs >= phase.min_duration_s * 1000;
     const maxElapsed = phaseElapsedMs >= phase.max_duration_s * 1000;
     const latestHr = getLatestHr();
-    const hrBelowTarget = latestHr !== null && latestHr <= phase.target_hr;
+    const hrBelowTarget = latestHr !== null && latestHr < phase.target_hr;
 
     if (maxElapsed) {
       shouldAdvance = true;
+      recoveryGateClearedAt = null;
       log(`Recovery phase "${phase.name}" force-advanced (max duration reached)`);
     } else if (minElapsed && hrBelowTarget) {
-      shouldAdvance = true;
-      log(`Recovery phase "${phase.name}" advanced (HR ${latestHr} <= target ${phase.target_hr})`);
+      // Debounce: HR must stay below target for 15s sustained before advancing
+      const now = Date.now();
+      if (recoveryGateClearedAt === null) {
+        recoveryGateClearedAt = now;
+        log(`Recovery gate: HR ${latestHr} below target ${phase.target_hr}, waiting for 15s sustained`);
+      } else if (now - recoveryGateClearedAt >= 15_000) {
+        shouldAdvance = true;
+        log(`Recovery gate: sustained 15s, advancing (HR ${latestHr} <= target ${phase.target_hr})`);
+      }
+    } else if (!hrBelowTarget && recoveryGateClearedAt !== null) {
+      // HR went back above target, reset the sustained check
+      log(`Recovery gate: HR ${latestHr ?? "---"} back above target ${phase.target_hr}, resetting`);
+      recoveryGateClearedAt = null;
     }
   } else {
     const durationMs = phase.duration_s * 1000;
@@ -699,6 +717,7 @@ function advancePhaseIfNeeded(): void {
   if (shouldAdvance && currentPhaseIndex < currentPlan.phases.length - 1) {
     currentPhaseIndex++;
     phaseStartTimes[currentPhaseIndex] = Date.now();
+    recoveryGateClearedAt = null;
     log(`Phase advanced to: ${currentPlan.phases[currentPhaseIndex].name}`);
 
     // Broadcast target event with new phase info so client timeline updates immediately
