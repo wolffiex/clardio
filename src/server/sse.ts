@@ -6,10 +6,15 @@ import { spawnSensorBridge, killSensorBridge } from "./sensor-process";
 
 const encoder = new TextEncoder();
 const emitter = new EventEmitter();
-emitter.setMaxListeners(100); // Support multiple connections
 
-// Track connected clients for logging
-let clientCount = 0;
+// Single active client tracking. Only one SSE connection is allowed at a time.
+// If a new connection arrives while one is active, the old one is replaced
+// (handles browser refresh and tab takeover).
+let activeClient: {
+  controller: ReadableStreamDefaultController;
+  keepaliveTimer: ReturnType<typeof setInterval>;
+  handler: (eventType: string, data: unknown) => void;
+} | null = null;
 
 // Bridge control
 let bridgeEnabled = true;
@@ -22,16 +27,37 @@ function formatSSE(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+/**
+ * Close the active SSE client connection, cleaning up its resources.
+ * Does NOT stop the workout or sensor bridge.
+ */
+function closeActiveClient(): void {
+  if (!activeClient) return;
+  const { controller, keepaliveTimer, handler } = activeClient;
+  clearInterval(keepaliveTimer);
+  emitter.off("broadcast", handler);
+  try {
+    controller.close();
+  } catch {
+    // Already closed
+  }
+  activeClient = null;
+}
+
 export function handleSSE(req: Request): Response {
-  let controllerRef: ReadableStreamDefaultController | null = null;
+  // If there's already an active client, close it. This handles browser
+  // refreshes (new connection arrives before old one's abort fires) and
+  // tab takeovers. The workout continues uninterrupted.
+  if (activeClient) {
+    log("SSE: replacing existing client connection");
+    closeActiveClient();
+  }
 
   const stream = new ReadableStream({
     start(controller) {
-      controllerRef = controller;
-      clientCount++;
-      log(`SSE client connected (total: ${clientCount})`);
+      log("SSE client connected");
 
-      // Start workout session and sensor bridge
+      // Start workout session and sensor bridge (idempotent if already active)
       startWorkout();
       if (bridgeEnabled) {
         spawnSensorBridge();
@@ -68,26 +94,25 @@ export function handleSSE(req: Request): Response {
 
       emitter.on("broadcast", handler);
 
+      // Register as the active client
+      activeClient = { controller, keepaliveTimer, handler };
+
       // Clean up on abort
       req.signal.addEventListener("abort", () => {
-        clearInterval(keepaliveTimer);
-        emitter.off("broadcast", handler);
-        clientCount--;
-        log(`SSE client disconnected (total: ${clientCount})`);
-
-        // Only stop workout and bridge when the last client disconnects.
-        // During a browser refresh, the new connection arrives before the old
-        // one aborts, so clientCount stays > 0 and the workout survives.
-        if (clientCount <= 0) {
-          stopWorkout();
-          if (bridgeEnabled) {
-            killSensorBridge();
-          }
+        // Only act if this connection is still the active one.
+        // If it was already replaced by a newer connection, skip cleanup
+        // (the replacement already handled it).
+        if (activeClient?.controller !== controller) {
+          log("SSE: stale client disconnected (already replaced)");
+          return;
         }
-        try {
-          controller.close();
-        } catch {
-          // Already closed
+
+        closeActiveClient();
+        log("SSE client disconnected");
+
+        stopWorkout();
+        if (bridgeEnabled) {
+          killSensorBridge();
         }
       });
     },
