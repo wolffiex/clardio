@@ -138,7 +138,6 @@ if (testMode) {
       power: parseInt(power),
       hr: hr ? parseInt(hr) : 120,
       cadence: parseInt(cadence),
-      elapsed: 10,
     });
   }
 
@@ -150,7 +149,6 @@ if (testMode) {
       power: parseInt(power2),
       hr: hr ? parseInt(hr) : 120,
       cadence: parseInt(cadence2),
-      elapsed: 20,
     });
   }
 } else {

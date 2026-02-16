@@ -12,11 +12,6 @@ export interface MetricsEvent {
   cadence: number;
 }
 
-// metrics event broadcast to clients (includes server-calculated elapsed)
-export interface MetricsBroadcast extends MetricsEvent {
-  elapsed: number;
-}
-
 // target event - power from coach, cadence + position from plan phase
 export interface TargetEvent {
   power: number | null;

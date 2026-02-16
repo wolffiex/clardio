@@ -1,4 +1,4 @@
-import type { MetricsEvent, MetricsBroadcast } from "../shared/types";
+import type { MetricsEvent } from "../shared/types";
 import { broadcast } from "./sse";
 import { addMetrics, getElapsed } from "./workout";
 import { log } from "./log";
@@ -118,9 +118,8 @@ export async function handleMetrics(req: Request): Promise<Response> {
     if (body.hr !== undefined) lastKnown.hr = body.hr;
     if (body.cadence !== undefined) lastKnown.cadence = body.cadence;
 
-    // Add server-side elapsed time and broadcast to all SSE clients
-    const broadcastData: MetricsBroadcast = { ...lastKnown, elapsed: getElapsed() };
-    broadcast("metrics", broadcastData);
+    // Broadcast to all SSE clients
+    broadcast("metrics", lastKnown);
 
     // Buffer for coach (returns false if no workout is active)
     const buffered = addMetrics(lastKnown);

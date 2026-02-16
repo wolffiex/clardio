@@ -8,9 +8,8 @@
 
 import { getProductionDb, getPlanById, getSamplesForPlanFrom } from "./db";
 import { broadcast } from "./sse";
-import { addMetrics, getElapsed } from "./workout";
+import { addMetrics } from "./workout";
 import { log } from "./log";
-import type { MetricsBroadcast } from "../shared/types";
 
 // Track last known values (mirrors routes.ts behavior)
 const lastKnown = { power: 0, hr: 0, cadence: 0 };
@@ -99,8 +98,7 @@ export function startReplay(
     if (cadence > 0) lastKnown.cadence = cadence;
 
     // Broadcast to SSE clients
-    const broadcastData: MetricsBroadcast = { ...lastKnown, elapsed: getElapsed() };
-    broadcast("metrics", broadcastData);
+    broadcast("metrics", { ...lastKnown });
 
     // Buffer for coach
     addMetrics({ ...lastKnown });

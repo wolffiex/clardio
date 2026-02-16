@@ -22,7 +22,7 @@ afterAll(() => {
 });
 
 describe("POST /api/metrics - sensor data", () => {
-  test("accepts valid metrics payload and broadcasts SSE with elapsed", async () => {
+  test("accepts valid metrics payload and broadcasts SSE", async () => {
     broadcastSpy.mockClear();
     const payload = { power: 200, hr: 145, cadence: 90 };
 
@@ -36,14 +36,14 @@ describe("POST /api/metrics - sensor data", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
 
-    // Server adds elapsed to broadcast
+    // Broadcast is pure metrics (no elapsed)
     expect(broadcastSpy).toHaveBeenCalledTimes(1);
     const broadcastCall = broadcastSpy.mock.calls[0];
     expect(broadcastCall[0]).toBe("metrics");
     expect(broadcastCall[1].power).toBe(200);
     expect(broadcastCall[1].hr).toBe(145);
     expect(broadcastCall[1].cadence).toBe(90);
-    expect(typeof broadcastCall[1].elapsed).toBe("number");
+    expect(broadcastCall[1].elapsed).toBeUndefined();
   });
 
   test("accepts partial payload with only hr", async () => {
