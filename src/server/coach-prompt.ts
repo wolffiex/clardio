@@ -322,37 +322,44 @@ function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary |
 export function loadSessionsFromDb(): SessionSummary[] {
   const db = getDb();
 
-  // Get plans that have samples
-  let plans = db
-    .query(
-      `SELECT p.* FROM plans p
-       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-       ORDER BY p.created_at ASC`
-    )
-    .all() as PlanRow[];
-
-  // If current DB has no sessions with samples, fall back to production DB
+  // Prefer production DB for rider profile -- real rides live there.
+  // Only fall back to current (dev) DB if production has no sessions.
+  let plans: PlanRow[] = [];
   let useDb = db;
-  if (plans.length === 0) {
-    try {
-      const prodDb = getProductionDb();
-      const prodPlans = prodDb
-        .query(
-          `SELECT p.* FROM plans p
-           WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-           ORDER BY p.created_at ASC`
-        )
-        .all() as PlanRow[];
 
-      if (prodPlans.length > 0) {
-        log("[coach] Using production DB for rider profile");
-        plans = prodPlans;
-        useDb = prodDb;
-      } else {
-        prodDb.close();
-      }
-    } catch {
-      // Production DB may not exist; that's fine
+  try {
+    const prodDb = getProductionDb();
+    const prodPlans = prodDb
+      .query(
+        `SELECT p.* FROM plans p
+         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+         ORDER BY p.created_at ASC`
+      )
+      .all() as PlanRow[];
+
+    if (prodPlans.length > 0) {
+      log("[coach] Using production DB for rider profile");
+      plans = prodPlans;
+      useDb = prodDb;
+    } else {
+      prodDb.close();
+    }
+  } catch {
+    // Production DB may not exist; that's fine
+  }
+
+  // Fall back to current DB if production had no sessions
+  if (plans.length === 0) {
+    plans = db
+      .query(
+        `SELECT p.* FROM plans p
+         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+         ORDER BY p.created_at ASC`
+      )
+      .all() as PlanRow[];
+
+    if (plans.length > 0) {
+      log("[coach] Using dev DB for rider profile (no production data)");
     }
   }
 
@@ -487,40 +494,45 @@ function bestRollingAvgPower(
 
 /**
  * Load raw samples per plan from the DB for rolling-average FTP computation.
- * Uses the same DB fallback logic as loadSessionsFromDb().
+ * Prefers production DB (real rides), falls back to current DB.
  */
 function loadRawSamplesPerPlan(): Map<number, SampleRow[]> {
   const db = getDb();
 
-  let planIds = db
-    .query(
-      `SELECT DISTINCT p.id FROM plans p
-       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-       ORDER BY p.id`
-    )
-    .all() as { id: number }[];
-
+  // Prefer production DB for FTP calculation -- real rides live there.
+  // Only fall back to current (dev) DB if production has no sessions.
+  let planIds: { id: number }[] = [];
   let useDb = db;
-  if (planIds.length === 0) {
-    try {
-      const prodDb = getProductionDb();
-      const prodPlanIds = prodDb
-        .query(
-          `SELECT DISTINCT p.id FROM plans p
-           WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-           ORDER BY p.id`
-        )
-        .all() as { id: number }[];
 
-      if (prodPlanIds.length > 0) {
-        planIds = prodPlanIds;
-        useDb = prodDb;
-      } else {
-        prodDb.close();
-      }
-    } catch {
-      // Production DB may not exist
+  try {
+    const prodDb = getProductionDb();
+    const prodPlanIds = prodDb
+      .query(
+        `SELECT DISTINCT p.id FROM plans p
+         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+         ORDER BY p.id`
+      )
+      .all() as { id: number }[];
+
+    if (prodPlanIds.length > 0) {
+      planIds = prodPlanIds;
+      useDb = prodDb;
+    } else {
+      prodDb.close();
     }
+  } catch {
+    // Production DB may not exist
+  }
+
+  // Fall back to current DB if production had no sessions
+  if (planIds.length === 0) {
+    planIds = db
+      .query(
+        `SELECT DISTINCT p.id FROM plans p
+         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+         ORDER BY p.id`
+      )
+      .all() as { id: number }[];
   }
 
   const result = new Map<number, SampleRow[]>();
@@ -838,31 +850,6 @@ function formatHrZonesGeneric(): string {
 - Z3 Tempo: gray zone
 - Z4 Threshold: lactate threshold
 - Z5 VO2max: maximal efforts`;
-}
-
-function generateTrainingZonesSection(config: TrainingZonesConfig): string {
-  const lines: string[] = [];
-  if (config.isDefault) {
-    lines.push("## Training Zones (estimated defaults -- will update from workout data)");
-  } else {
-    lines.push("## Training Zones");
-  }
-  lines.push("");
-
-  if (config.estimatedFtp !== null) {
-    lines.push(formatPowerZones(config.estimatedFtp));
-  } else {
-    lines.push(formatPowerZonesGeneric());
-  }
-  lines.push("");
-
-  if (config.hrZones !== null) {
-    lines.push(formatHrZones(config.hrZones));
-  } else {
-    lines.push(formatHrZonesGeneric());
-  }
-
-  return lines.join("\n");
 }
 
 /**

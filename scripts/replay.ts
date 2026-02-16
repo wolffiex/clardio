@@ -17,7 +17,6 @@ import {
   isRecoveryPhase,
   buildCoachingSystemPrompt,
   getZonesText,
-  getZonePowerRanges,
   coachSchema,
 } from "../src/server/coach-prompt";
 
@@ -251,7 +250,6 @@ function buildReplayUserMessage(
   samples: SampleRow[],
   offsetMs: number,
   zonesText: string,
-  zonePowerRanges: Record<string, { min: number; max: number }> | null
 ): string {
   const elapsedStr = formatElapsed(offsetMs);
   const sections: string[] = [];
@@ -334,12 +332,6 @@ function buildReplayUserMessage(
       sections.push(
         `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${cadenceStr}rpm`
       );
-      if (zonePowerRanges) {
-        const range = zonePowerRanges[currentPhase.zone];
-        if (range) {
-          sections.push(`Power range for ${currentPhase.zone}: ${range.min}-${range.max}W`);
-        }
-      }
       sections.push(
         `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
       );
@@ -384,9 +376,9 @@ function buildReplayUserMessage(
   sections.push("## Recent Coach Messages");
   sections.push("[not available -- coach messages are not stored in DB]");
 
-  // Coach Notes -- not stored in DB
+  // Note from previous tick -- not stored in DB
   sections.push("");
-  sections.push("## Coach Notes");
+  sections.push("## Note from previous tick");
   sections.push("[not available -- coach notes are not stored in DB]");
 
   // Get samples up to the offset
@@ -733,12 +725,11 @@ async function main() {
 
   // Build zones (uses current DB state, same as a live workout would at start)
   const zonesText = getZonesText();
-  const zonePowerRanges = getZonePowerRanges();
 
   // Build reconstructed user message (always shown for comparison / --call use)
   // Use stored user_message if available, otherwise reconstruct from DB data
   const userMessage = closestTick?.user_message
-    ?? buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText, zonePowerRanges);
+    ?? buildReplayUserMessage(phases, planSummary, allSamples, offsetMs, zonesText);
 
   // Print system prompt
   console.log("=".repeat(80));

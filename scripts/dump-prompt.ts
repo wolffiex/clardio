@@ -10,7 +10,6 @@ import {
   buildPlanningUserPrompt,
   buildCoachingSystemPrompt,
   getZonesText,
-  getZonePowerRanges,
   planSchema,
   coachSchema,
 } from "../src/server/coach-prompt.ts";
@@ -51,10 +50,6 @@ if (arg === "coaching" || arg === "both") {
 
   // Build a realistic sample of what a mid-workout coaching tick looks like
   const zones = getZonesText();
-  const zonePowerRanges = getZonePowerRanges();
-  const ssPowerRange = zonePowerRanges?.["Sweet Spot"]
-    ? `Power range for Sweet Spot: ${zonePowerRanges["Sweet Spot"].min}-${zonePowerRanges["Sweet Spot"].max}W`
-    : "Power range: unknown";
 
   const sampleUserMessage = `WORKOUT TIME: 15:40
 
@@ -65,24 +60,22 @@ Your message displays at ~15:47
 
 ## Plan
 Sweet spot with standing surges
-   Easy Spin: 5min Z1 seated 70-80rpm
-   Build to Endurance: 5min Z2 seated 75-85rpm
-   Opener Surge: 1min Z4 standing 85-95rpm
-   Recovery: recovery (HR<120) seated 70-80rpm
 -> Sweet Spot Block 1: 8min Sweet Spot seated 85-95rpm
    Standing Surge: 1min Z4 standing 80-90rpm
    Sweet Spot Block 2: 8min Sweet Spot seated 85-95rpm
-   Standing Surge: 1min Z4 standing 80-90rpm
-   Sweet Spot Block 3: 8min Sweet Spot seated 85-95rpm
-   Easy Spin Cooldown: 3min Z1 seated 65-75rpm
-   Final Cooldown: 3min Z1 seated 65-75rpm
+   (+3 more phases)
 
 ## Zones
 ${zones}
 
-## Current Phase
+## Rider Profile
+(rider profile from DB history -- power capabilities, aerobic fitness, patterns, recent load)
+
+## Session Trends
+(compact session trends -- EF trend, warmup HR, FTP estimate)
+
+## Current Phase (AUTHORITATIVE — do not override)
 Sweet Spot Block 1 | Sweet Spot | seated | 85-95rpm
-${ssPowerRange}
 Phase time: 3:20 elapsed, 4:40 remaining
 HR target: 140-150 (informational)
 Cue: drop heels at bottom of stroke
@@ -95,9 +88,8 @@ Power: 195W
 [15:20] "Settling in. Good rhythm."
 [15:30] "HR right where it should be."
 
-## Coach Notes
-[5:00] Warmup went smoothly, HR responded normally
-[12:00] First interval HR peaked at Z4 ceiling, recovered well
+## Note from previous tick
+First interval HR peaked at Z4 ceiling, recovered well
 
 ## HR Trajectory
 5m ago: 110 | 4m ago: 122 | 3m ago: 133 | 2m ago: 140 | 1m ago: 144 | now: 146
