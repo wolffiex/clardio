@@ -9,12 +9,17 @@ import {
   type Phase,
   type WorkoutPlan,
   type CoachResponse,
+  type HrZones,
   isRecoveryPhase,
   buildPlanningSystemPrompt,
   buildPlanningUserPrompt,
   buildCoachingSystemPrompt,
   getZonesText,
-  getZonePowerRanges,
+  getHrZoneLabel,
+  loadRiderData,
+  loadSessionsFromDb,
+  buildRiderProfileFromDb,
+  buildCompactTrends,
 } from "./coach-prompt";
 import { planWorkout, sendCoachMessage } from "./coach";
 import { savePlan, getRecentPlans, saveSample, saveCoachTick } from "./db";
@@ -66,14 +71,20 @@ let currentPowerTarget: number | null = null;
 // HR must stay below target for 15s sustained before advancing
 let recoveryGateClearedAt: number | null = null;
 
-// Coach notes (persistent memory across ticks)
-let coachNotes: Array<{ elapsed: string; note: string }> = [];
+// Coach note (single baton pass from previous tick)
+let previousCoachNote: string | null = null;
 
 // Cached zones text (computed once at workout start, never recalculated mid-workout)
 let cachedZonesText: string = "";
 
-// Cached zone power ranges for cross-referencing in Current Phase section
-let cachedZonePowerRanges: Record<string, { min: number; max: number }> | null = null;
+// Cached HR zones for zone label annotations
+let cachedHrZones: HrZones | null = null;
+
+// Cached rider profile text (computed once at workout start)
+let cachedRiderProfile: string = "";
+
+// Cached compact session trends (computed once at workout start)
+let cachedSessionTrends: string = "";
 
 // Metrics buffer
 type Sample = { power: number; hr: number; cadence: number; receivedAt: number };
@@ -104,7 +115,7 @@ export async function startWorkout(): Promise<void> {
   lastPowerChangeTime = 0;
   currentPowerTarget = null;
   recoveryGateClearedAt = null;
-  coachNotes = [];
+  previousCoachNote = null;
   currentPlan = null;
   currentPlanId = null;
 
@@ -112,9 +123,14 @@ export async function startWorkout(): Promise<void> {
   let replayData: ReturnType<typeof loadReplayData> = null;
 
   try {
-    // 0. Cache zones BEFORE any samples are saved (avoids warmup data polluting zones)
+    // 0. Cache zones, HR zones, rider profile, and session trends BEFORE any
+    //    samples are saved (avoids warmup data polluting zones)
     cachedZonesText = getZonesText();
-    cachedZonePowerRanges = getZonePowerRanges();
+    const riderData = loadRiderData();
+    cachedHrZones = riderData.zones.hrZones;
+    cachedRiderProfile = buildRiderProfileFromDb();
+    const sessions = loadSessionsFromDb();
+    cachedSessionTrends = buildCompactTrends(sessions);
 
     if (replayPlanId !== null) {
       // --- REPLAY MODE: load plan + samples from production DB ---
@@ -270,7 +286,9 @@ export function stopWorkout(): void {
   currentPlanId = null;
   coachingPrompt = "";
   cachedZonesText = "";
-  cachedZonePowerRanges = null;
+  cachedHrZones = null;
+  cachedRiderProfile = "";
+  cachedSessionTrends = "";
   coachHistory = [];
   samples = [];
   lastSampleTime = null;
@@ -432,6 +450,20 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("## Zones");
     sections.push(cachedZonesText);
 
+    // Rider profile (cached at workout start)
+    if (cachedRiderProfile) {
+      sections.push("");
+      sections.push("## Rider Profile");
+      sections.push(cachedRiderProfile);
+    }
+
+    // Session trends (cached at workout start)
+    if (cachedSessionTrends) {
+      sections.push("");
+      sections.push("## Session Trends");
+      sections.push(cachedSessionTrends);
+    }
+
     sections.push("");
     sections.push("## Current Phase (AUTHORITATIVE — do not override)");
     if (currentPhase) {
@@ -487,10 +519,6 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
           );
-          const newPhaseRange = lookupZonePowerRange(currentPhase.zone);
-          if (newPhaseRange) {
-            sections.push(`Power range for ${currentPhase.zone}: ${newPhaseRange}`);
-          }
           sections.push(
             `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
           );
@@ -510,10 +538,6 @@ function buildUserMessage(isStart: boolean): string {
           sections.push(
             `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
           );
-          const ongoingPhaseRange = lookupZonePowerRange(currentPhase.zone);
-          if (ongoingPhaseRange) {
-            sections.push(`Power range for ${currentPhase.zone}: ${ongoingPhaseRange}`);
-          }
           sections.push(
             `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
           );
@@ -577,14 +601,11 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Coach notes (persistent memory, last 3 only)
-  if (coachNotes.length > 0) {
+  // Single note from previous tick (baton pass)
+  if (previousCoachNote) {
     sections.push("");
-    sections.push("## Coach Notes");
-    const recentNotes = coachNotes.slice(-3);
-    for (const n of recentNotes) {
-      sections.push(`[${n.elapsed}] ${n.note}`);
-    }
+    sections.push("## Note from previous tick");
+    sections.push(previousCoachNote);
   }
 
   // HR trajectory (minute-by-minute, before recent metrics)
@@ -634,9 +655,10 @@ function buildUserMessage(isStart: boolean): string {
         else if (cadenceDiff < -5) cadenceTrend = "\u2193";
       }
 
+      const hrZoneLabel = cachedHrZones ? ` (${getHrZoneLabel(curHr, cachedHrZones)})` : "";
       sections.push("## Recent Metrics (15s avg)");
       sections.push(
-        `Power ${curPower}W${powerTrend} | HR ${curHr}${hrTrend} | Cadence ${curCadence}${cadenceTrend}`
+        `Power ${curPower}W${powerTrend} | HR ${curHr}${hrZoneLabel}${hrTrend} | Cadence ${curCadence}${cadenceTrend}`
       );
     } else {
       sections.push("## Recent Metrics (15s avg)");
@@ -672,8 +694,9 @@ function buildUserMessage(isStart: boolean): string {
       const avgCadence = Math.round(
         phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
       );
+      const statusHrZone = cachedHrZones ? `(${getHrZoneLabel(avgHr, cachedHrZones)})` : "";
       sections.push(
-        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+        `Phase avg: ${avgPower}W ${avgHr}bpm${statusHrZone} ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
       );
     } else {
       sections.push(
@@ -693,17 +716,6 @@ function buildUserMessage(isStart: boolean): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Look up the power range string for a zone name (e.g. "Z4" -> "163-188W").
- * Uses the cached zone power ranges computed at workout start.
- */
-function lookupZonePowerRange(zoneName: string): string | null {
-  if (!cachedZonePowerRanges) return null;
-  const range = cachedZonePowerRanges[zoneName];
-  if (!range) return null;
-  return `${range.min}-${range.max}W`;
-}
 
 function getElapsedMs(): number {
   return Date.now() - workoutStartTime;
@@ -939,9 +951,10 @@ function buildHrTrajectory(): string | null {
   // Need at least 1 historical point plus "now" to be useful
   if (points.length === 0) return null;
 
-  // Build the timeline string
+  // Build the timeline string with zone label on "now"
   const parts = points.map((p) => `${p.label}: ${p.hr}`);
-  parts.push(`now: ${nowHr}`);
+  const nowZoneLabel = cachedHrZones ? ` (${getHrZoneLabel(nowHr, cachedHrZones)})` : "";
+  parts.push(`now: ${nowHr}${nowZoneLabel}`);
   const timeline = parts.join(" | ");
 
   // Calculate trend from earliest available point to now
@@ -972,6 +985,6 @@ function updateCoachHistory(response: CoachResponse): void {
     coachHistory.shift();
   }
   if (response.note) {
-    coachNotes.push({ elapsed, note: response.note });
+    previousCoachNote = response.note;
   }
 }
