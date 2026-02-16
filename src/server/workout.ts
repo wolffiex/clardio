@@ -245,7 +245,7 @@ export async function startWorkout(): Promise<void> {
     // 5.5 Save initial coach tick (skip in replay mode)
     if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
+      saveCoachTick(currentPlanId, elapsedS, "[initial]", response, lastLatencyMs);
     }
 
     // 6. Start the 10-second coaching loop (adjusted by replay speed)
@@ -374,14 +374,14 @@ async function onCoachTick(): Promise<void> {
     // Save coach tick to DB (skip in replay mode)
     if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, null, response, lastLatencyMs);
+      saveCoachTick(currentPlanId, elapsedS, userMessage, response, lastLatencyMs);
     }
   } catch (err) {
     console.error("Coach tick error:", err);
     // Save failed tick to DB (skip in replay mode)
     if (!isReplay && currentPlanId) {
       const elapsedS = getElapsedMs() / 1000;
-      saveCoachTick(currentPlanId, elapsedS, null, null, null);
+      saveCoachTick(currentPlanId, elapsedS, userMessage ?? "", null, null);
     }
   }
 }
