@@ -19,7 +19,7 @@ export type TimedPhase = {
   name: string;
   zone: string;
   duration_s: number;
-  cadence: string;
+  cadence: number;
   position: string;
   hr_target?: string;
   form_cues?: string[];
@@ -31,7 +31,7 @@ export type RecoveryPhase = {
   target_hr: number;
   min_duration_s: number;
   max_duration_s: number;
-  cadence: string;
+  cadence: number;
   position: string;
 };
 
@@ -75,7 +75,7 @@ export const planSchema = {
               name: { type: "string" },
               zone: { type: "string", description: "e.g. Z1, Z2, Z4, Sweet Spot" },
               duration_s: { type: "number", description: "Duration in seconds, minimum 60" },
-              cadence: { type: "string", description: "RPM range, e.g. '85-95'" },
+              cadence: { type: "number", description: "Target cadence in RPM" },
               position: { type: "string", description: "seated or standing" },
               hr_target: { type: "string", description: "Informational HR range, e.g. '128-134'" },
               form_cues: {
@@ -96,7 +96,7 @@ export const planSchema = {
               target_hr: { type: "number", description: "Advance when HR drops below this" },
               min_duration_s: { type: "number", description: "Minimum duration in seconds, at least 60" },
               max_duration_s: { type: "number", description: "Maximum duration cap in seconds" },
-              cadence: { type: "string", description: "RPM range, e.g. '70-80'" },
+              cadence: { type: "number", description: "Target cadence in RPM" },
               position: { type: "string", description: "Usually 'seated'" },
             },
             required: ["name", "type", "target_hr", "min_duration_s", "max_duration_s", "cadence", "position"],
@@ -1226,13 +1226,13 @@ End the workout with a recovery phase for cooling down. Set the target_hr low en
 | Over-Unders | 2 min above LTHR / 2 min just below LTHR | - | 10-20 min blocks | Teaches lactate management |
 | Tempo Blocks | 15-20 min @ Z3 HR | 5 min | 2-3 | Gray zone -- use sparingly |
 
-### Cadence Ranges by Effort
-| Effort | Cadence |
-|--------|---------|
-| Endurance | 70-90 RPM |
-| Threshold | 85-95 RPM |
-| High-cadence drills | 95-110 RPM |
-| Climbing | 60-80 RPM |
+### Cadence Targets
+Set a single target cadence per phase (not a range). Guidelines:
+- Endurance: ~80 RPM
+- Threshold: ~90 RPM
+- High-cadence drills: ~100 RPM
+- Climbing: ~65 RPM
+- Standing: ~70 RPM
 
 ## Position Variety
 
@@ -1265,7 +1265,7 @@ Time cues appropriately: recovery intervals (mental bandwidth available), ragged
 
 Every phase must be at least 60 seconds. The coach adjusts power every 10 seconds based on HR response. Phases must be at least 60 seconds so the coach has time to observe HR and adjust. The coach cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases -- each at least 60 seconds. Standing efforts, cadence changes, and intensity changes should each be their own phase.
 
-Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), cadence ranges, position, and form cues for each phase. Use recovery phases after hard efforts with appropriate HR targets.`;
+Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), target cadence, position, and form cues for each phase. Use recovery phases after hard efforts with appropriate HR targets.`;
 }
 
 /**

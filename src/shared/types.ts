@@ -20,7 +20,7 @@ export interface MetricsBroadcast extends MetricsEvent {
 // target event - power from coach, cadence + position from plan phase
 export interface TargetEvent {
   power: number | null;
-  cadence: string | null;
+  cadence: number | null;
   position: string | null;
   phaseIndex?: number;
   phaseName?: string;

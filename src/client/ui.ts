@@ -13,20 +13,6 @@ import {
   CADENCE_MAX_DISTANCE,
 } from "./progress";
 
-/**
- * Parse a cadence target string like "85-95" into its midpoint (90).
- * Returns null if the string is null or unparseable.
- */
-function parseCadenceTarget(cadence: string | null): number | null {
-  if (cadence === null) return null;
-  const match = cadence.match(/(\d+)\s*-\s*(\d+)/);
-  if (match) {
-    return Math.round((parseInt(match[1]) + parseInt(match[2])) / 2);
-  }
-  const num = parseInt(cadence);
-  return isNaN(num) ? null : num;
-}
-
 interface UIElements {
   coachMessage: HTMLElement;
   power: HTMLElement;
@@ -125,7 +111,7 @@ export class UIController {
   updateTarget(event: TargetEvent | null): void {
     if (event) {
       this.targetPower = event.power;
-      this.targetCadence = parseCadenceTarget(event.cadence);
+      this.targetCadence = event.cadence;
 
       // Update timeline with phase info if present
       if (event.phaseIndex !== undefined && event.phaseTotal !== undefined) {

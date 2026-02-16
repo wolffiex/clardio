@@ -18,7 +18,7 @@ export interface PlanPhase {
   max_duration_s?: number;
   target_hr?: number;
   position?: string;
-  cadence?: string;
+  cadence?: number;
 }
 
 export interface PhaseInfo {
