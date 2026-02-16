@@ -28,7 +28,7 @@ class SSEClient {
       console.error("[SSE] Error, will auto-reconnect", err);
       this.emit("_error", err);
     };
-    const eventTypes = ["connected", "coach", "metrics", "target", "plan", "workout_complete"];
+    const eventTypes = ["connected", "coach", "metrics", "target", "plan"];
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event) => {
         try {
@@ -354,17 +354,6 @@ class TimelineController {
   hasPlan() {
     return this.phases.length > 0;
   }
-  setComplete(reason) {
-    this.clearTimer();
-    this.currentPhaseIndex = this.phases.length;
-    this.isRecovery = false;
-    this.render();
-    const el = document.getElementById("timeline-detail");
-    if (el) {
-      const label = reason === "hr_cleared" ? "Complete" : "Complete (max duration)";
-      el.innerHTML = `<span class="text-green-400">${label}</span>`;
-    }
-  }
   clearTimer() {
     if (this.timerInterval !== null) {
       clearInterval(this.timerInterval);
@@ -601,14 +590,6 @@ if (testMode) {
   });
   sse.on("plan", (data) => {
     handlePlan(data);
-  });
-  sse.on("workout_complete", (data) => {
-    const event = data;
-    console.log("[App] Workout complete:", event.reason, event.message);
-    ui.stopTimer();
-    if (timeline2.hasPlan()) {
-      timeline2.setComplete(event.reason);
-    }
   });
   sse.on("_connected", () => {
     ui.setConnectionStatus("connecting");

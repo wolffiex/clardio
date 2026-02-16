@@ -85,7 +85,6 @@ export function startReplay(
     if (!replayActive || index >= samples.length) {
       replayActive = false;
       log(`[replay] Playback complete (${samples.length} samples fed)`);
-      broadcast("coach", { text: "Replay complete." });
       return;
     }
 
@@ -131,7 +130,6 @@ export function startReplay(
       // Last sample done
       replayActive = false;
       log(`[replay] Playback complete (${samples.length} samples fed)`);
-      broadcast("coach", { text: "Replay complete." });
     }
   }
 

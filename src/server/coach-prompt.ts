@@ -8,7 +8,8 @@
  * Run scripts/dump-prompt.ts to preview both prompts.
  */
 
-import { getDb, type PlanRow } from "./db";
+import { getDb, getProductionDb, type PlanRow } from "./db";
+import { log } from "./log";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -813,7 +814,7 @@ If the rider cannot hit hard targets, simplify. Drop to endurance pace with occa
 4. Brief recovery before main set
 
 ### Final Recovery Phase
-End the workout with a recovery phase. Set the target_hr low enough to indicate full recovery (e.g., below 110-120 bpm). The workout ends automatically when this final recovery phase's HR gate clears. Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase.
+End the workout with a recovery phase for cooling down. Set the target_hr low enough to indicate full recovery (e.g., below 110-120 bpm). Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase. The workout continues until the rider disconnects.
 
 ## Interval Formats
 
@@ -1030,7 +1031,7 @@ Only describe what the data shows. If HR is stable, say nothing about HR. If pow
 
 ## Final Recovery Phase
 
-The last phase in the plan is always a recovery phase. When you see you are in the final recovery phase, encourage the rider to spin easy and let their HR come down. Do not quote the HR target or current reading -- just say whether they are close or still need time. The workout ends automatically when the HR gate clears (or max duration is reached). When you see the final phase advance -- the workout is done. Congratulate the rider briefly. Something dry: "That's a session." or "Done. Good work." Not a parade.
+The last phase in the plan is always a recovery phase. When you see you are in the final recovery phase, encourage the rider to spin easy and let their HR come down. Do not quote the HR target or current reading -- just say whether they are close or still need time. The workout continues until the rider disconnects.
 
 ## Notes
 
