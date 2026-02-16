@@ -18,6 +18,8 @@ import {
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
+const COACH_TIMEOUT_MS = 8000; // Under 10s tick interval — prevents coaching calls from overlapping
+const PLAN_TIMEOUT_MS = 30000; // Planning is a one-time startup call, give it more room
 const RETRY_DELAY_MS = 2000;
 
 function isRetryableStatus(err: unknown): boolean {
@@ -48,24 +50,32 @@ async function callPlanner(
   systemPrompt: string,
   userMessage: string
 ): Promise<WorkoutPlan> {
-  const response = await client.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: planSchema,
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
+  try {
+    const response = await client.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: planSchema,
+        },
       },
-    },
-  });
+    }, { signal: controller.signal });
+    clearTimeout(timeout);
 
-  const textBlock = response.content.find(
-    (b): b is Anthropic.TextBlock => b.type === "text"
-  );
-  if (!textBlock) throw new Error("No text response from planner");
-  return JSON.parse(textBlock.text) as WorkoutPlan;
+    const textBlock = response.content.find(
+      (b): b is Anthropic.TextBlock => b.type === "text"
+    );
+    if (!textBlock) throw new Error("No text response from planner");
+    return JSON.parse(textBlock.text) as WorkoutPlan;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
 }
 
 export async function sendCoachMessage(
@@ -75,16 +85,6 @@ export async function sendCoachMessage(
   try {
     return await callCoach(systemPrompt, userMessage);
   } catch (err) {
-    if (isRetryableStatus(err)) {
-      log(`Coach API error (${(err as APIError).status}), retrying in ${RETRY_DELAY_MS}ms...`);
-      await sleep(RETRY_DELAY_MS);
-      try {
-        return await callCoach(systemPrompt, userMessage);
-      } catch (retryErr) {
-        log(`Coach retry failed: ${retryErr}`);
-        return null;
-      }
-    }
     log(`Coach error: ${err}`);
     return null;
   }
@@ -94,22 +94,30 @@ async function callCoach(
   systemPrompt: string,
   userMessage: string
 ): Promise<CoachResponse | null> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: coachSchema,
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COACH_TIMEOUT_MS);
+  try {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: coachSchema,
+        },
       },
-    },
-  });
+    }, { signal: controller.signal });
+    clearTimeout(timeout);
 
-  const textBlock = response.content.find(
-    (b): b is Anthropic.TextBlock => b.type === "text"
-  );
-  if (!textBlock) return null;
-  return JSON.parse(textBlock.text) as CoachResponse;
+    const textBlock = response.content.find(
+      (b): b is Anthropic.TextBlock => b.type === "text"
+    );
+    if (!textBlock) return null;
+    return JSON.parse(textBlock.text) as CoachResponse;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
 }
