@@ -89,16 +89,45 @@ export function closeDb(): void {
     db.close();
     db = null;
   }
+  closeRiderHistoryDb();
 }
 
 /**
- * Open the PRODUCTION database (read-only).
- * Used by replay mode to load recorded sessions while dev DB is active.
+ * Get a read-only connection to the production database for rider history.
+ * All rider profile, zone calculation, and trend analysis reads go through this.
+ * In production mode, this is the same physical file as getDb().
+ * In dev/replay mode, this still reads from the production database.
+ *
+ * Opened with { readonly: true } so writes are rejected at the SQLite level.
+ * Cached for the lifetime of the process (multiple functions read rider history
+ * during the same prompt-building cycle).
+ */
+let riderHistoryDb: Database | null = null;
+
+export function getRiderHistoryDb(): Database {
+  if (!riderHistoryDb) {
+    const prodPath = join(DB_DIR, "clardio.db");
+    riderHistoryDb = new Database(prodPath, { readonly: true });
+  }
+  return riderHistoryDb;
+}
+
+export function closeRiderHistoryDb(): void {
+  if (riderHistoryDb) {
+    riderHistoryDb.close();
+    riderHistoryDb = null;
+  }
+}
+
+/**
+ * Open a fresh read-only connection to the production database.
+ * Caller is responsible for closing it. Used by replay mode which
+ * needs a short-lived connection to load a specific session.
+ * For rider history reads (profile, zones, trends), use getRiderHistoryDb() instead.
  */
 export function getProductionDb(): Database {
   const prodPath = join(DB_DIR, "clardio.db");
-  const prodDb = new Database(prodPath, { readonly: true });
-  return prodDb;
+  return new Database(prodPath, { readonly: true });
 }
 
 /**
@@ -139,8 +168,8 @@ export function savePlan(phasesJson: string): number {
 }
 
 export function getRecentPlans(limit: number = 10): PlanRow[] {
-  const db = getDb();
-  return db.query("SELECT * FROM plans ORDER BY created_at DESC LIMIT ?").all(limit) as PlanRow[];
+  const historyDb = getRiderHistoryDb();
+  return historyDb.query("SELECT * FROM plans ORDER BY created_at DESC LIMIT ?").all(limit) as PlanRow[];
 }
 
 export function saveSample(

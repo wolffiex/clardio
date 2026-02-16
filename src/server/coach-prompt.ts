@@ -8,7 +8,7 @@
  * Run scripts/dump-prompt.ts to preview both prompts.
  */
 
-import { getDb, getProductionDb, type PlanRow } from "./db";
+import { getRiderHistoryDb, type PlanRow } from "./db";
 import { log } from "./log";
 
 // ---------------------------------------------------------------------------
@@ -320,52 +320,20 @@ function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary |
 }
 
 export function loadSessionsFromDb(): SessionSummary[] {
-  const db = getDb();
+  log("[coach] Loading rider history from production DB");
+  const historyDb = getRiderHistoryDb();
 
-  // Prefer production DB for rider profile -- real rides live there.
-  // Only fall back to current (dev) DB if production has no sessions.
-  let plans: PlanRow[] = [];
-  let useDb = db;
-
-  try {
-    const prodDb = getProductionDb();
-    const prodPlans = prodDb
-      .query(
-        `SELECT p.* FROM plans p
-         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-         ORDER BY p.created_at ASC`
-      )
-      .all() as PlanRow[];
-
-    if (prodPlans.length > 0) {
-      log("[coach] Using production DB for rider profile");
-      plans = prodPlans;
-      useDb = prodDb;
-    } else {
-      prodDb.close();
-    }
-  } catch {
-    // Production DB may not exist; that's fine
-  }
-
-  // Fall back to current DB if production had no sessions
-  if (plans.length === 0) {
-    plans = db
-      .query(
-        `SELECT p.* FROM plans p
-         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-         ORDER BY p.created_at ASC`
-      )
-      .all() as PlanRow[];
-
-    if (plans.length > 0) {
-      log("[coach] Using dev DB for rider profile (no production data)");
-    }
-  }
+  const plans = historyDb
+    .query(
+      `SELECT p.* FROM plans p
+       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+       ORDER BY p.created_at ASC`
+    )
+    .all() as PlanRow[];
 
   const sessions: SessionSummary[] = [];
   for (const plan of plans) {
-    const samples = useDb
+    const samples = historyDb
       .query(
         "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
       )
@@ -375,13 +343,6 @@ export function loadSessionsFromDb(): SessionSummary[] {
     if (summary) {
       sessions.push(summary);
     }
-  }
-
-  // Close prod DB if we opened one
-  if (useDb !== db) {
-    try {
-      useDb.close();
-    } catch {}
   }
 
   return sessions;
@@ -493,62 +454,28 @@ function bestRollingAvgPower(
 }
 
 /**
- * Load raw samples per plan from the DB for rolling-average FTP computation.
- * Prefers production DB (real rides), falls back to current DB.
+ * Load raw samples per plan from the production DB for rolling-average FTP computation.
+ * Always reads from the production database (the source of all rider history).
  */
 function loadRawSamplesPerPlan(): Map<number, SampleRow[]> {
-  const db = getDb();
+  const historyDb = getRiderHistoryDb();
 
-  // Prefer production DB for FTP calculation -- real rides live there.
-  // Only fall back to current (dev) DB if production has no sessions.
-  let planIds: { id: number }[] = [];
-  let useDb = db;
-
-  try {
-    const prodDb = getProductionDb();
-    const prodPlanIds = prodDb
-      .query(
-        `SELECT DISTINCT p.id FROM plans p
-         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-         ORDER BY p.id`
-      )
-      .all() as { id: number }[];
-
-    if (prodPlanIds.length > 0) {
-      planIds = prodPlanIds;
-      useDb = prodDb;
-    } else {
-      prodDb.close();
-    }
-  } catch {
-    // Production DB may not exist
-  }
-
-  // Fall back to current DB if production had no sessions
-  if (planIds.length === 0) {
-    planIds = db
-      .query(
-        `SELECT DISTINCT p.id FROM plans p
-         WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
-         ORDER BY p.id`
-      )
-      .all() as { id: number }[];
-  }
+  const planIds = historyDb
+    .query(
+      `SELECT DISTINCT p.id FROM plans p
+       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+       ORDER BY p.id`
+    )
+    .all() as { id: number }[];
 
   const result = new Map<number, SampleRow[]>();
   for (const { id } of planIds) {
-    const samples = useDb
+    const samples = historyDb
       .query(
         "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
       )
       .all(id) as SampleRow[];
     result.set(id, samples);
-  }
-
-  if (useDb !== db) {
-    try {
-      useDb.close();
-    } catch {}
   }
 
   return result;
@@ -964,10 +891,10 @@ export function buildSessionTrendsSection(sessions: SessionSummary[]): string {
 
   // (c) Recovery quality -- compare HR recovery patterns from coach_ticks
   try {
-    const db = getDb();
+    const historyDb = getRiderHistoryDb();
     const recoveryData: { planId: number; avgRecoveryHr: number }[] = [];
     for (const s of sessions) {
-      const ticks = db
+      const ticks = historyDb
         .query(
           "SELECT response_power FROM coach_ticks WHERE plan_id = ? AND response_power IS NOT NULL ORDER BY elapsed_s"
         )
@@ -1045,22 +972,11 @@ export function buildSessionTrendsSection(sessions: SessionSummary[]): string {
     // Load plan phases to map time -> zone
     let planPhases: Phase[] | null = null;
     try {
-      const db = getDb();
-      const planRow = db
+      const historyDb = getRiderHistoryDb();
+      const planRow = historyDb
         .query("SELECT phases FROM plans WHERE id = ?")
         .get(s.planId) as { phases: string } | null;
-      if (!planRow) {
-        try {
-          const prodDb = getProductionDb();
-          const prodRow = prodDb
-            .query("SELECT phases FROM plans WHERE id = ?")
-            .get(s.planId) as { phases: string } | null;
-          if (prodRow) planPhases = JSON.parse(prodRow.phases) as Phase[];
-          prodDb.close();
-        } catch {}
-      } else {
-        planPhases = JSON.parse(planRow.phases) as Phase[];
-      }
+      if (planRow) planPhases = JSON.parse(planRow.phases) as Phase[];
     } catch {}
 
     if (!planPhases) continue;
@@ -1386,10 +1302,10 @@ Design today's workout.`;
  * can avoid repeating the same cues.
  */
 function buildPreviousCuesSection(): string {
-  const db = getDb();
+  const historyDb = getRiderHistoryDb();
 
   // Get the most recent plan that has phases with form cues
-  const recentPlan = db
+  const recentPlan = historyDb
     .query("SELECT id, created_at, phases FROM plans ORDER BY created_at DESC LIMIT 1")
     .get() as { id: number; created_at: string; phases: string } | null;
 
