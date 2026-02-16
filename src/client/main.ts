@@ -75,13 +75,13 @@ if (testMode) {
         { name: "Easy Spin",      zone: "Z1", duration_s: 300, position: "seated",   cadence: 75 },
         { name: "Build",          zone: "Z2", duration_s: 300, position: "seated",   cadence: 85 },
         { name: "Opener",         zone: "Z4", duration_s: 120, position: "seated",   cadence: 92 },
-        { name: "Recovery",       type: "recovery", target_hr: 130, min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: 75 },
+        { name: "Recovery",       type: "recovery", target_hr: 130, max_duration_s: 180, position: "seated", cadence: 75 },
         { name: "Threshold 1",    zone: "Z4", duration_s: 240, position: "seated",   cadence: 90 },
         { name: "Standing Surge", zone: "Z5", duration_s: 60,  position: "standing", cadence: 65 },
-        { name: "Recovery",       type: "recovery", target_hr: 125, min_duration_s: 60, max_duration_s: 180, position: "seated", cadence: 75 },
+        { name: "Recovery",       type: "recovery", target_hr: 125, max_duration_s: 180, position: "seated", cadence: 75 },
         { name: "Sweet Spot",     zone: "Sweet Spot", duration_s: 300, position: "seated", cadence: 90 },
         { name: "Threshold 2",    zone: "Z4", duration_s: 240, position: "seated",   cadence: 90 },
-        { name: "Recovery",       type: "recovery", target_hr: 120, min_duration_s: 60, max_duration_s: 120, position: "seated", cadence: 75 },
+        { name: "Recovery",       type: "recovery", target_hr: 120, max_duration_s: 120, position: "seated", cadence: 75 },
         { name: "Cooldown",       zone: "Z1", duration_s: 300, position: "seated",   cadence: 70 },
       ],
     };
@@ -90,28 +90,39 @@ if (testMode) {
     // Set current phase info
     const currentPhase = samplePlan.phases[phaseIndex];
     const isRecoveryPhase = currentPhase?.type === "recovery";
-    const phaseTotal = currentPhase
-      ? (isRecoveryPhase ? (currentPhase.max_duration_s ?? 180) : (currentPhase.duration_s ?? 60))
+    const phaseDuration = currentPhase
+      ? (isRecoveryPhase ? null : (currentPhase.duration_s ?? 60))
       : 60;
+
+    // Simulate server timestamps: phase started phaseElapsed seconds ago
+    const now = Date.now();
+    const fakePhaseStartedAt = now - phaseElapsed * 1000;
 
     timeline.updatePhase({
       phaseIndex,
-      phaseName: currentPhase?.name,
-      phaseElapsed,
-      phaseTotal,
+      phaseName: currentPhase?.name ?? "",
+      phaseStartedAt: fakePhaseStartedAt,
+      phaseDuration,
       isRecovery: isRecoveryPhase,
       targetHr: isRecoveryPhase ? currentPhase?.target_hr : undefined,
-      phaseMinDuration: isRecoveryPhase ? currentPhase?.min_duration_s : undefined,
+      serverTimestamp: now,
     });
   }
 
   const targetPower = params.get("target_power");
   const targetCadence = params.get("target_cadence");
   if (targetPower || targetCadence) {
+    const testNow = Date.now();
     ui.updateTarget({
       power: targetPower ? parseInt(targetPower) : null,
       cadence: targetCadence ? parseInt(targetCadence) : null,
       position: null,
+      phaseIndex: 0,
+      phaseName: "",
+      phaseStartedAt: testNow,
+      phaseDuration: null,
+      isRecovery: false,
+      serverTimestamp: testNow,
     });
   }
 

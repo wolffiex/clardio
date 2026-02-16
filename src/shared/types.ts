@@ -22,13 +22,13 @@ export interface TargetEvent {
   power: number | null;
   cadence: number | null;
   position: string | null;
-  phaseIndex?: number;
-  phaseName?: string;
-  phaseElapsed?: number;  // seconds elapsed in current phase
-  phaseTotal?: number;    // total duration of current phase (or max_duration_s for recovery)
-  isRecovery?: boolean;
-  targetHr?: number;      // for recovery phases: HR must drop below this to advance
-  phaseMinDuration?: number; // for recovery phases: minimum seconds before HR check
+  phaseIndex: number;
+  phaseName: string;
+  phaseStartedAt: number;      // server timestamp (Date.now()) when this phase began
+  phaseDuration: number | null; // total seconds for timed phases, null for recovery
+  isRecovery: boolean;
+  targetHr?: number;           // for recovery: HR must drop below this
+  serverTimestamp: number;     // Date.now() when this event was built
 }
 
 // Union type for all SSE events

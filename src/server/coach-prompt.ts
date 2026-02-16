@@ -29,7 +29,6 @@ export type RecoveryPhase = {
   name: string;
   type: "recovery";
   target_hr: number;
-  min_duration_s: number;
   max_duration_s: number;
   cadence: number;
   position: string;
@@ -94,12 +93,11 @@ export const planSchema = {
               name: { type: "string" },
               type: { type: "string", const: "recovery", description: "Must be 'recovery'" },
               target_hr: { type: "number", description: "Advance when HR drops below this" },
-              min_duration_s: { type: "number", description: "Minimum duration in seconds, at least 60" },
               max_duration_s: { type: "number", description: "Maximum duration cap in seconds" },
               cadence: { type: "number", description: "Target cadence in RPM" },
               position: { type: "string", description: "Usually 'seated'" },
             },
-            required: ["name", "type", "target_hr", "min_duration_s", "max_duration_s", "cadence", "position"],
+            required: ["name", "type", "target_hr", "max_duration_s", "cadence", "position"],
             additionalProperties: false,
           },
         ],
@@ -1182,12 +1180,9 @@ You design the STRUCTURE: phases, zones, cadence, position, form cues, HR target
 Fixed-duration phases with a target zone. Duration in seconds (minimum 60s).
 
 ### Recovery Phases
-HR-gated recovery between hard efforts. They advance when:
-1. At least min_duration_s has elapsed, AND
-2. HR has dropped below target_hr
-3. OR max_duration_s has been reached (forced advance)
+HR-gated recovery between hard efforts. Recovery phases advance when HR drops below target_hr for 15 sustained seconds, or when max_duration is reached.
 
-Recovery phases should follow hard efforts. Set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery. min_duration_s should be at least 60s.
+Recovery phases should follow hard efforts. Set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery.
 
 ## Polarized Training Principle
 

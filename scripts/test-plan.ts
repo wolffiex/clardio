@@ -46,7 +46,7 @@ async function main() {
           ? ` [form: ${phase.cadence}rpm]`
           : "";
       console.log(
-        `  Recovery (${phase.position}, ${phase.cadence}rpm, HR < ${phase.target_hr}, ${formatDuration(phase.min_duration_s)}-${formatDuration(phase.max_duration_s)})${formStr}`
+        `  Recovery (${phase.position}, ${phase.cadence}rpm, HR < ${phase.target_hr}, max ${formatDuration(phase.max_duration_s)})${formStr}`
       );
       console.log();
       totalDurationS += phase.max_duration_s;

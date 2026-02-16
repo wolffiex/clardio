@@ -113,20 +113,18 @@ export class UIController {
       this.targetPower = event.power;
       this.targetCadence = event.cadence;
 
-      // Update timeline with phase info if present
-      if (event.phaseIndex !== undefined && event.phaseTotal !== undefined) {
-        const tl = getTimeline();
-        if (tl && tl.hasPlan()) {
-          tl.updatePhase({
-            phaseIndex: event.phaseIndex,
-            phaseName: event.phaseName,
-            phaseElapsed: event.phaseElapsed ?? 0,
-            phaseTotal: event.phaseTotal,
-            isRecovery: event.isRecovery,
-            targetHr: event.targetHr,
-            phaseMinDuration: event.phaseMinDuration,
-          });
-        }
+      // Update timeline with phase info
+      const tl = getTimeline();
+      if (tl && tl.hasPlan()) {
+        tl.updatePhase({
+          phaseIndex: event.phaseIndex,
+          phaseName: event.phaseName,
+          phaseStartedAt: event.phaseStartedAt,
+          phaseDuration: event.phaseDuration,
+          isRecovery: event.isRecovery,
+          targetHr: event.targetHr,
+          serverTimestamp: event.serverTimestamp,
+        });
       }
     } else {
       this.targetPower = null;

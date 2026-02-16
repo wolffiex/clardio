@@ -14,7 +14,6 @@ export interface PlanPhase {
   zone?: string;
   duration_s?: number;
   type?: string;
-  min_duration_s?: number;
   max_duration_s?: number;
   target_hr?: number;
   position?: string;
@@ -23,12 +22,12 @@ export interface PlanPhase {
 
 export interface PhaseInfo {
   phaseIndex: number;
-  phaseName?: string;
-  phaseElapsed: number; // seconds
-  phaseTotal: number;   // seconds
-  isRecovery?: boolean;
-  targetHr?: number;       // HR threshold for recovery phases
-  phaseMinDuration?: number; // minimum seconds for recovery phases
+  phaseName: string;
+  phaseStartedAt: number;      // server timestamp (Date.now()) when this phase began
+  phaseDuration: number | null; // total seconds for timed phases, null for recovery
+  isRecovery: boolean;
+  targetHr?: number;           // HR threshold for recovery phases
+  serverTimestamp: number;     // Date.now() when the event was built on the server
 }
 
 // ---------------------------------------------------------------------------
@@ -87,18 +86,19 @@ export class TimelineController {
   private container: HTMLElement;
   private phases: PlanPhase[] = [];
   private currentPhaseIndex: number = -1;
-  private phaseElapsed: number = 0;
-  private phaseTotal: number = 0;
   private isRecovery: boolean = false;
   private phaseName: string = "";
   private targetHr: number | undefined = undefined;
-  private phaseMinDuration: number | undefined = undefined;
+
+  // Server-sent phase timing
+  private phaseStartedAt: number = 0;      // server timestamp when phase began
+  private phaseDuration: number | null = null; // total seconds (null for recovery)
+
+  // Clock sync state
+  private clockOffset: number = 0;         // localTimestamp - serverTimestamp
 
   // Client-side countdown timer state
   private timerInterval: ReturnType<typeof setInterval> | null = null;
-  private syncRemaining: number = 0;  // seconds remaining at sync point
-  private syncElapsed: number = 0;    // seconds elapsed at sync point (recovery)
-  private syncTime: number = 0;       // Date.now() at last sync
 
   constructor() {
     this.container = document.getElementById("timeline")!;
@@ -120,24 +120,19 @@ export class TimelineController {
    */
   updatePhase(info: PhaseInfo): void {
     this.currentPhaseIndex = info.phaseIndex;
-    this.phaseName = info.phaseName ?? "";
-    this.phaseElapsed = info.phaseElapsed;
-    this.phaseTotal = info.phaseTotal;
-    this.isRecovery = info.isRecovery ?? false;
+    this.phaseName = info.phaseName;
+    this.isRecovery = info.isRecovery;
     this.targetHr = info.targetHr;
-    this.phaseMinDuration = info.phaseMinDuration;
 
-    // Sync client-side timer
-    this.syncTime = Date.now();
-    if (this.isRecovery) {
-      this.syncElapsed = info.phaseElapsed;
-      this.syncRemaining = 0;
-    } else {
-      this.syncRemaining = Math.max(0, info.phaseTotal - info.phaseElapsed);
-      this.syncElapsed = 0;
-    }
+    // Store server timing
+    this.phaseStartedAt = info.phaseStartedAt;
+    this.phaseDuration = info.phaseDuration;
+
+    // Estimate clock offset: difference between when client received and server sent
+    const localTimestamp = Date.now();
+    this.clockOffset = localTimestamp - info.serverTimestamp;
+
     this.startTimer();
-
     this.render();
   }
 
@@ -170,15 +165,15 @@ export class TimelineController {
 
   /**
    * Get the current countdown (timed phases) or elapsed (recovery) in seconds,
-   * interpolated from the last server sync point using the client clock.
+   * computed from server timestamps with clock offset correction.
    */
-  private getClientSeconds(): number {
-    const drift = (Date.now() - this.syncTime) / 1000;
-    if (this.isRecovery) {
-      return this.syncElapsed + drift;
-    } else {
-      return Math.max(0, this.syncRemaining - drift);
+  private getClientSeconds(): { elapsed: number; remaining: number | null } {
+    const elapsed = (Date.now() - this.phaseStartedAt - this.clockOffset) / 1000;
+    if (this.isRecovery || this.phaseDuration === null) {
+      return { elapsed: Math.max(0, elapsed), remaining: null };
     }
+    const remaining = Math.max(0, this.phaseDuration - elapsed);
+    return { elapsed: Math.max(0, elapsed), remaining };
   }
 
   // -------------------------------------------------------------------------
@@ -219,18 +214,14 @@ export class TimelineController {
 
       // Progress fill within current phase
       let progressHtml = "";
-      if (isCurrent && this.phaseTotal > 0) {
+      if (isCurrent && this.phaseDuration !== null && this.phaseDuration > 0) {
+        const { elapsed } = this.getClientSeconds();
         if (this.isRecovery) {
-          // Recovery: show min-duration mark and pulsing fill
-          const minDur = this.phaseMinDuration ?? 0;
-          const progressPercent = Math.min(100, (this.phaseElapsed / this.phaseTotal) * 100);
-          const minMarkPercent = minDur > 0 ? Math.min(100, (minDur / this.phaseTotal) * 100) : 0;
+          // Recovery: pulsing fill showing elapsed progress
+          const progressPercent = Math.min(100, (elapsed / this.phaseDuration) * 100);
           progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/10 rounded-sm recovery-progress" style="width:${progressPercent}%"></div>`;
-          if (minMarkPercent > 0 && minMarkPercent < 100) {
-            progressHtml += `<div class="absolute top-0 bottom-0 w-px bg-slate-400/50" style="left:${minMarkPercent}%"></div>`;
-          }
         } else {
-          const progressPercent = Math.min(100, (this.phaseElapsed / this.phaseTotal) * 100);
+          const progressPercent = Math.min(100, (elapsed / this.phaseDuration) * 100);
           progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
         }
       }
@@ -283,8 +274,8 @@ export class TimelineController {
       }
 
       // Count-up elapsed from client clock
-      const clientElapsed = Math.floor(this.getClientSeconds());
-      parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(clientElapsed)}</span>`);
+      const { elapsed } = this.getClientSeconds();
+      parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(Math.floor(elapsed))}</span>`);
     } else {
       // Timed phase: show zone, cadence, position, countdown
       if (phase.zone) {
@@ -302,9 +293,11 @@ export class TimelineController {
       }
 
       // Countdown from client clock
-      if (this.phaseTotal > 0) {
-        const remaining = Math.floor(this.getClientSeconds());
-        parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(remaining)}</span>`);
+      if (this.phaseDuration !== null && this.phaseDuration > 0) {
+        const { remaining } = this.getClientSeconds();
+        if (remaining !== null) {
+          parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(Math.floor(remaining))}</span>`);
+        }
       }
     }
 

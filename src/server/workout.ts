@@ -208,7 +208,6 @@ export async function startWorkout(): Promise<void> {
           return {
             name: phase.name,
             type: "recovery",
-            min_duration_s: phase.min_duration_s,
             max_duration_s: phase.max_duration_s,
             target_hr: phase.target_hr,
             position: phase.position,
@@ -457,7 +456,7 @@ function buildUserMessage(isStart: boolean): string {
           );
           sections.push(getPreviousPhaseDescription());
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
           if (positionChanged) {
@@ -471,7 +470,7 @@ function buildUserMessage(isStart: boolean): string {
           }
         } else {
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
 
@@ -784,7 +783,6 @@ function advancePhaseIfNeeded(): void {
   let shouldAdvance = false;
 
   if (isRecoveryPhase(phase)) {
-    const minElapsed = phaseElapsedMs >= phase.min_duration_s * 1000;
     const maxElapsed = phaseElapsedMs >= phase.max_duration_s * 1000;
     const latestHr = getLatestHr();
     const hrBelowTarget = latestHr !== null && latestHr < phase.target_hr;
@@ -793,7 +791,7 @@ function advancePhaseIfNeeded(): void {
       shouldAdvance = true;
       recoveryGateClearedAt = null;
       log(`Recovery phase "${phase.name}" force-advanced (max duration reached)`);
-    } else if (minElapsed && hrBelowTarget) {
+    } else if (hrBelowTarget) {
       // Debounce: HR must stay below target for 15s sustained before advancing
       const now = Date.now();
       if (recoveryGateClearedAt === null) {
@@ -823,18 +821,17 @@ function advancePhaseIfNeeded(): void {
 
     // Broadcast target event with new phase info so client timeline updates immediately
     const newPhase = currentPlan.phases[currentPhaseIndex];
-    const newPhaseTotal = isRecoveryPhase(newPhase) ? newPhase.max_duration_s : newPhase.duration_s;
     broadcast("target", {
       power: currentPowerTarget,
       cadence: newPhase.cadence,
       position: newPhase.position,
       phaseIndex: currentPhaseIndex,
       phaseName: newPhase.name,
-      phaseElapsed: 0,
-      phaseTotal: newPhaseTotal,
+      phaseStartedAt: phaseStartTimes[currentPhaseIndex],
+      phaseDuration: isRecoveryPhase(newPhase) ? null : newPhase.duration_s,
       isRecovery: isRecoveryPhase(newPhase),
       targetHr: isRecoveryPhase(newPhase) ? newPhase.target_hr : undefined,
-      phaseMinDuration: isRecoveryPhase(newPhase) ? newPhase.min_duration_s : undefined,
+      serverTimestamp: Date.now(),
     });
   }
 }
@@ -886,25 +883,23 @@ function handleCoachResponse(response: CoachResponse): void {
   broadcast("coach", { text: response.message });
 
   // Broadcast target: power from coach, cadence + position from plan phase
-  const { currentPhase, phaseElapsed, phaseRemaining } = getCurrentPhaseInfo(getElapsedMs());
+  const { currentPhase } = getCurrentPhaseInfo(getElapsedMs());
   const phaseCadence = currentPhase ? currentPhase.cadence : null;
   const phasePosition = currentPhase ? currentPhase.position : null;
-
-  const phaseTotal = currentPhase
-    ? (isRecoveryPhase(currentPhase) ? currentPhase.max_duration_s : currentPhase.duration_s)
-    : undefined;
 
   broadcast("target", {
     power: effectivePower,
     cadence: phaseCadence,
     position: phasePosition,
     phaseIndex: currentPhaseIndex,
-    phaseName: currentPhase?.name,
-    phaseElapsed: Math.round(phaseElapsed / 1000),
-    phaseTotal,
-    isRecovery: currentPhase ? isRecoveryPhase(currentPhase) : undefined,
+    phaseName: currentPhase?.name ?? "",
+    phaseStartedAt: phaseStartTimes[currentPhaseIndex] ?? workoutStartTime,
+    phaseDuration: currentPhase
+      ? (isRecoveryPhase(currentPhase) ? null : currentPhase.duration_s)
+      : null,
+    isRecovery: currentPhase ? isRecoveryPhase(currentPhase) : false,
     targetHr: currentPhase && isRecoveryPhase(currentPhase) ? currentPhase.target_hr : undefined,
-    phaseMinDuration: currentPhase && isRecoveryPhase(currentPhase) ? currentPhase.min_duration_s : undefined,
+    serverTimestamp: Date.now(),
   });
 
   log(

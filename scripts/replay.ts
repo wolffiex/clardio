@@ -319,7 +319,7 @@ function buildReplayUserMessage(
   if (currentPhase) {
     if (isRecoveryPhase(currentPhase)) {
       sections.push(
-        `Recovery -- target HR: ${currentPhase.target_hr}, min: ${currentPhase.min_duration_s}s, max: ${currentPhase.max_duration_s}s, elapsed: ${Math.round(phaseElapsed / 1000)}s`
+        `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
       );
       sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
     } else {
