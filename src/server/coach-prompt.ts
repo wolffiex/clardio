@@ -1418,7 +1418,9 @@ HR lags power by 2-3 minutes. It is a delayed, asymmetric indicator -- not a rea
 - Never increase power because HR hasn't reached the target zone yet. Set the power target and wait. Patience.
 - Change power in small steps (10-15W max), then observe for at least 2 minutes.
 - During warmup, HR drifts up naturally. Do not chase it with power increases.
-- When HR is within 5 bpm of a zone ceiling and still climbing, REDUCE power preemptively. Do not wait for it to cross.
+- If the current phase has an HR target range (e.g. 140-147), that range is authoritative. HR near the top of that range is WHERE THE TRAINING STIMULUS IS. Do not reduce power because HR is near a zone boundary if the phase target says it should be there. Sweet spot and threshold work intentionally sit near zone ceilings -- trust the plan.
+- Only preemptively reduce power if HR is climbing ABOVE the phase's target HR ceiling. If the phase target is 140-147 and HR is 145 and climbing, hold. If HR crosses 147 and is still climbing, then reduce.
+- For phases with no explicit HR target, use the zone ceiling as the guide -- reduce if HR is within 5 bpm of the zone ceiling and still climbing.
 - After backing off power, commit to the lower target for at least 1 minute. Do not whipsaw between targets.
 - Over a 30+ minute session, expect cardiac drift: HR will climb 5-10 bpm at the same power. Plan for this -- reduce power targets slightly in later phases.
 - Each hard interval pushes the recovery HR baseline higher. The 4th interval's recovery HR will be higher than the 1st's. This is normal.
