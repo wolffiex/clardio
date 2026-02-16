@@ -8,6 +8,10 @@ import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
 let wakeLock: WakeLockSentinel | null = null;
 
 async function requestWakeLock() {
+  if (!navigator.wakeLock) {
+    console.log("[WakeLock] Not available (requires HTTPS)");
+    return;
+  }
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     console.log('[WakeLock] Acquired');
