@@ -547,10 +547,12 @@ function buildUserMessage(isStart: boolean): string {
         if (lastPhaseName !== null && currentPhase.name !== lastPhaseName) {
           formCueIndex = 0;
         }
-        // Show one cue at a time, rotating through the list
-        const cueIdx = formCueIndex % cues.length;
-        sections.push(`Cue: ${cues[cueIdx]}`);
-        sections.push(`(${cueIdx + 1} of ${cues.length} phase cues)`);
+        // Show each cue exactly once; after all delivered, omit the cue line
+        if (formCueIndex < cues.length) {
+          sections.push(`Cue: ${cues[formCueIndex]}`);
+          sections.push(`(${formCueIndex + 1} of ${cues.length} phase cues)`);
+        }
+        // If formCueIndex >= cues.length, no cue line — coach is free to observe, push, or stay quiet
         formCueIndex++;
       }
 
