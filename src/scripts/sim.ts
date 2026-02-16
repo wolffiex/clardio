@@ -27,8 +27,33 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
+/**
+ * Approximate normal distribution using Box-Muller transform.
+ * Returns a value from a standard normal (mean 0, stddev 1).
+ */
+function randNormal(): number {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random(); // avoid log(0)
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/**
+ * Add physiological variation to a base value.
+ * Uses a normal-ish distribution (stddev = range/2 so ~95% of values
+ * fall within +/- range) and clamps to [min, Infinity).
+ */
+function vary(base: number, range: number, min: number): number {
+  const noise = Math.round(randNormal() * (range / 2));
+  return Math.max(min, base + noise);
+}
+
 async function sendMetrics() {
-  const payload = { hr, cadence, power };
+  const payload = {
+    hr: vary(hr, 3, 40),          // +/- 1-3 bpm
+    cadence: vary(cadence, 3, 0), // +/- 2-3 rpm
+    power: vary(power, 10, 0),    // +/- 5-10 W
+  };
 
   try {
     await fetch(`${SERVER}/api/metrics`, {
