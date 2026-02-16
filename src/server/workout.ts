@@ -402,17 +402,51 @@ function buildUserMessage(isStart: boolean): string {
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
   }
 
-  // =========================================================================
-  // OPENING — Where we are in the workout
-  // =========================================================================
-
-  // Plan and current phase
+  // Pre-compute phase info (used by multiple sections below)
+  let phaseInfo: { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number } =
+    { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
   if (currentPlan) {
-    const { currentPhase, phaseElapsed, phaseRemaining } =
-      getCurrentPhaseInfo(elapsed);
+    phaseInfo = getCurrentPhaseInfo(elapsed);
+  }
 
+  // =========================================================================
+  // 1. RIDER PROFILE — Background: who is this rider
+  // =========================================================================
+
+  // Rider profile (cached at workout start)
+  if (cachedRiderProfile) {
+    sections.push("## Rider Profile");
+    sections.push(cachedRiderProfile);
+  }
+
+  // =========================================================================
+  // 2. SESSION TRENDS — Background: how they've been doing across sessions
+  // =========================================================================
+
+  // Session trends (cached at workout start)
+  if (cachedSessionTrends) {
+    sections.push("");
+    sections.push("## Session Trends");
+    sections.push(cachedSessionTrends);
+  }
+
+  // =========================================================================
+  // 3. ZONES — Background: HR zones and FTP reference
+  // =========================================================================
+
+  // Zones (cached at workout start -- never recalculated mid-workout)
+  sections.push("");
+  sections.push("## Zones");
+  sections.push(cachedZonesText);
+
+  // =========================================================================
+  // 4. PLAN OVERVIEW — Today's workout: the full plan with phases
+  // =========================================================================
+
+  if (currentPlan) {
     // Plan overview (current + next 2 phases, with remaining count)
     // During recovery phases, hide next-phase details to prevent premature announcements
+    sections.push("");
     sections.push("## Plan");
     sections.push(currentPlan.summary);
     const planPhases = currentPlan.phases;
@@ -439,6 +473,27 @@ function buildUserMessage(isStart: boolean): string {
     if (remainingAfterVisible > 0 && !currentIsRecovery) {
       sections.push(`   (+${remainingAfterVisible} more phase${remainingAfterVisible === 1 ? "" : "s"})`);
     }
+  }
+
+  // =========================================================================
+  // 5. RECENT COACH MESSAGES — Recent past: what coach said recently
+  // =========================================================================
+
+  // Recent coach messages
+  if (coachHistory.length > 0) {
+    sections.push("");
+    sections.push("## Recent Coach Messages");
+    for (const h of coachHistory) {
+      sections.push(`[${h.elapsed}] "${h.message}"`);
+    }
+  }
+
+  // =========================================================================
+  // 6. CURRENT PHASE — Right now: what phase we're in, elapsed/remaining, cues
+  // =========================================================================
+
+  if (currentPlan) {
+    const { currentPhase, phaseElapsed, phaseRemaining } = phaseInfo;
 
     sections.push("");
     sections.push("## Current Phase (AUTHORITATIVE — do not override)");
@@ -562,7 +617,7 @@ function buildUserMessage(isStart: boolean): string {
   }
 
   // =========================================================================
-  // MIDDLE — What's happening now
+  // 7. RECENT METRICS + HR TRAJECTORY — Right now: latest sensor data and HR trend
   // =========================================================================
 
   // Recent metrics (15s rolling averages with trend indicators)
@@ -611,7 +666,19 @@ function buildUserMessage(isStart: boolean): string {
       sections.push("## Recent Metrics (15s avg)");
       sections.push("No samples in last 15s");
     }
+
+    // HR trajectory (current HR + trend, grouped with recent metrics)
+    const hrTrajectory = buildHrTrajectory();
+    if (hrTrajectory) {
+      sections.push("");
+      sections.push("## HR Trajectory");
+      sections.push(hrTrajectory);
+    }
   }
+
+  // =========================================================================
+  // 8. CURRENT TARGET — What was last set: power and cadence targets
+  // =========================================================================
 
   // Current targets (power only, from most recent coach response)
   sections.push("");
@@ -622,6 +689,10 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("No target set yet.");
   }
 
+  // =========================================================================
+  // 9. NOTE FROM PREVIOUS TICK — Baton pass: the coach's note to itself
+  // =========================================================================
+
   // Single note from previous tick (baton pass)
   if (previousCoachNote) {
     sections.push("");
@@ -629,46 +700,8 @@ function buildUserMessage(isStart: boolean): string {
     sections.push(previousCoachNote);
   }
 
-  // Recent coach messages
-  if (coachHistory.length > 0) {
-    sections.push("");
-    sections.push("## Recent Coach Messages");
-    for (const h of coachHistory) {
-      sections.push(`[${h.elapsed}] "${h.message}"`);
-    }
-  }
-
-  // Rider profile (cached at workout start)
-  if (cachedRiderProfile) {
-    sections.push("");
-    sections.push("## Rider Profile");
-    sections.push(cachedRiderProfile);
-  }
-
-  // Session trends (cached at workout start)
-  if (cachedSessionTrends) {
-    sections.push("");
-    sections.push("## Session Trends");
-    sections.push(cachedSessionTrends);
-  }
-
-  // HR trajectory (simplified: current HR + trend, placed with background context)
-  if (!isStart) {
-    const hrTrajectory = buildHrTrajectory();
-    if (hrTrajectory) {
-      sections.push("");
-      sections.push("## HR Trajectory");
-      sections.push(hrTrajectory);
-    }
-  }
-
-  // Zones (cached at workout start -- never recalculated mid-workout)
-  sections.push("");
-  sections.push("## Zones");
-  sections.push(cachedZonesText);
-
   // =========================================================================
-  // CLOSING — When your words arrive
+  // 10. WHEN THIS ARRIVES — Timing: latency-adjusted timing context (always last)
   // =========================================================================
 
   if (!isStart) {
