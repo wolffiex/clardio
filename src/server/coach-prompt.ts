@@ -323,7 +323,7 @@ function loadSessionsFromDb(): SessionSummary[] {
   const db = getDb();
 
   // Get plans that have samples
-  const plans = db
+  let plans = db
     .query(
       `SELECT p.* FROM plans p
        WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
@@ -331,9 +331,34 @@ function loadSessionsFromDb(): SessionSummary[] {
     )
     .all() as PlanRow[];
 
+  // If current DB has no sessions with samples, fall back to production DB
+  let useDb = db;
+  if (plans.length === 0) {
+    try {
+      const prodDb = getProductionDb();
+      const prodPlans = prodDb
+        .query(
+          `SELECT p.* FROM plans p
+           WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+           ORDER BY p.created_at ASC`
+        )
+        .all() as PlanRow[];
+
+      if (prodPlans.length > 0) {
+        log("[coach] Using production DB for rider profile");
+        plans = prodPlans;
+        useDb = prodDb;
+      } else {
+        prodDb.close();
+      }
+    } catch {
+      // Production DB may not exist; that's fine
+    }
+  }
+
   const sessions: SessionSummary[] = [];
   for (const plan of plans) {
-    const samples = db
+    const samples = useDb
       .query(
         "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
       )
@@ -343,6 +368,13 @@ function loadSessionsFromDb(): SessionSummary[] {
     if (summary) {
       sessions.push(summary);
     }
+  }
+
+  // Close prod DB if we opened one
+  if (useDb !== db) {
+    try {
+      useDb.close();
+    } catch {}
   }
 
   return sessions;
@@ -409,22 +441,136 @@ function calculateWeeksSpan(sessions: SessionSummary[]): number {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7));
 }
 
-function estimateFtpFromSessions(sessions: SessionSummary[]): number | null {
-  // First try: p95 from steady-state sessions (VI < 1.1)
-  const steadySessions = sessions.filter(
-    (s) =>
-      s.variabilityIndex !== null &&
-      s.variabilityIndex < 1.1 &&
-      s.powerStats !== null
-  );
+/**
+ * Compute the best rolling-average power over a given window for a single plan's samples.
+ * Returns the maximum rolling average found, or null if not enough data.
+ * Uses duration-weighted averaging to handle irregular sample intervals.
+ */
+function bestRollingAvgPower(
+  samples: SampleRow[],
+  windowMs: number
+): number | null {
+  // Filter to samples with valid power
+  const valid = samples.filter((s) => s.power !== null && s.power > 0);
+  if (valid.length === 0) return null;
 
-  if (steadySessions.length > 0) {
-    const p95Values = steadySessions.map((s) => s.powerStats!.p95);
-    const maxP95 = Math.max(...p95Values);
-    return Math.round(maxP95 * 0.75);
+  // Check if we have enough total duration
+  const totalMs = valid.reduce((sum, s) => sum + s.duration_ms, 0);
+  if (totalMs < windowMs) return null;
+
+  // Sliding window using cumulative time
+  let best = 0;
+  let windowPowerSum = 0;
+  let windowDurationMs = 0;
+  let left = 0;
+
+  for (let right = 0; right < valid.length; right++) {
+    windowPowerSum += valid[right].power! * valid[right].duration_ms;
+    windowDurationMs += valid[right].duration_ms;
+
+    // Shrink window from left while it exceeds the target
+    while (windowDurationMs - valid[left].duration_ms >= windowMs) {
+      windowPowerSum -= valid[left].power! * valid[left].duration_ms;
+      windowDurationMs -= valid[left].duration_ms;
+      left++;
+    }
+
+    // Only consider windows that span at least windowMs
+    if (windowDurationMs >= windowMs) {
+      const avg = windowPowerSum / windowDurationMs;
+      if (avg > best) best = avg;
+    }
   }
 
-  // Fallback: use overall p95 from any session with power data
+  return best > 0 ? best : null;
+}
+
+/**
+ * Load raw samples per plan from the DB for rolling-average FTP computation.
+ * Uses the same DB fallback logic as loadSessionsFromDb().
+ */
+function loadRawSamplesPerPlan(): Map<number, SampleRow[]> {
+  const db = getDb();
+
+  let planIds = db
+    .query(
+      `SELECT DISTINCT p.id FROM plans p
+       WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+       ORDER BY p.id`
+    )
+    .all() as { id: number }[];
+
+  let useDb = db;
+  if (planIds.length === 0) {
+    try {
+      const prodDb = getProductionDb();
+      const prodPlanIds = prodDb
+        .query(
+          `SELECT DISTINCT p.id FROM plans p
+           WHERE EXISTS (SELECT 1 FROM samples s WHERE s.plan_id = p.id)
+           ORDER BY p.id`
+        )
+        .all() as { id: number }[];
+
+      if (prodPlanIds.length > 0) {
+        planIds = prodPlanIds;
+        useDb = prodDb;
+      } else {
+        prodDb.close();
+      }
+    } catch {
+      // Production DB may not exist
+    }
+  }
+
+  const result = new Map<number, SampleRow[]>();
+  for (const { id } of planIds) {
+    const samples = useDb
+      .query(
+        "SELECT timestamp_ms, duration_ms, power, hr, cadence FROM samples WHERE plan_id = ? ORDER BY timestamp_ms"
+      )
+      .all(id) as SampleRow[];
+    result.set(id, samples);
+  }
+
+  if (useDb !== db) {
+    try {
+      useDb.close();
+    } catch {}
+  }
+
+  return result;
+}
+
+function estimateFtpFromSessions(sessions: SessionSummary[]): number | null {
+  // Try rolling-average best-effort methods first
+  const samplesPerPlan = loadRawSamplesPerPlan();
+
+  let best5min: number | null = null;
+  let best20min: number | null = null;
+
+  for (const [, samples] of samplesPerPlan) {
+    const avg5 = bestRollingAvgPower(samples, 5 * 60 * 1000);
+    if (avg5 !== null && (best5min === null || avg5 > best5min)) {
+      best5min = avg5;
+    }
+
+    const avg20 = bestRollingAvgPower(samples, 20 * 60 * 1000);
+    if (avg20 !== null && (best20min === null || avg20 > best20min)) {
+      best20min = avg20;
+    }
+  }
+
+  // FTP = max of (best 20-min x 0.95) and (best 5-min x 0.75)
+  const candidates: number[] = [];
+  if (best20min !== null) candidates.push(best20min * 0.95);
+  if (best5min !== null) candidates.push(best5min * 0.75);
+
+  if (candidates.length > 0) {
+    return Math.round(Math.max(...candidates));
+  }
+
+  // Fallback: old p95 x 0.75 method
   const sessionsWithPower = sessions.filter((s) => s.powerStats !== null);
   if (sessionsWithPower.length > 0) {
     const p95Values = sessionsWithPower.map((s) => s.powerStats!.p95);
@@ -610,7 +756,7 @@ function buildRiderProfileFromDb(): string {
 // Training zones
 // ---------------------------------------------------------------------------
 
-interface HrZones {
+export interface HrZones {
   maxHr: number;
   lthr: number;
   z1Max: number;
@@ -637,6 +783,17 @@ function calculateHrZones(maxHr: number): HrZones {
     z4Max: Math.round(lthr * 0.99),
     z5Min: lthr,
   };
+}
+
+/**
+ * Return a zone label for a given HR value, e.g. "Z3 Tempo".
+ */
+export function getHrZoneLabel(hr: number, hrZones: HrZones): string {
+  if (hr >= hrZones.z5Min) return "Z5 VO2max";
+  if (hr >= hrZones.z4Min) return "Z4 Threshold";
+  if (hr >= hrZones.z3Min) return "Z3 Tempo";
+  if (hr >= hrZones.z2Min) return "Z2 Endurance";
+  return "Z1 Recovery";
 }
 
 function formatHrZones(zones: HrZones): string {
@@ -730,6 +887,327 @@ function generateCompactZones(config: TrainingZonesConfig): string {
     lines.push(
       `LTHR: ${z.lthr}${defaultTag} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`
     );
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Session trend analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a date as "Mon DD" (e.g. "Feb 10").
+ */
+function formatShortDate(date: Date): string {
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
+ * Build detailed session trend analysis for the planning prompt.
+ */
+export function buildSessionTrendsSection(sessions: SessionSummary[]): string {
+  if (sessions.length < 2) return "";
+
+  const lines: string[] = [];
+  lines.push("## Session Trends");
+  lines.push("");
+
+  // (a) EF trend
+  const efEntries = sessions
+    .filter((s) => s.efficiencyFactor !== null)
+    .map((s) => ({ ef: s.efficiencyFactor!, date: s.date }));
+
+  if (efEntries.length >= 2) {
+    const efParts = efEntries.map(
+      (e) => `${e.ef.toFixed(2)} (${formatShortDate(e.date)})`
+    );
+    const first = efEntries[0].ef;
+    const last = efEntries[efEntries.length - 1].ef;
+    const trend =
+      last > first + 0.02
+        ? "trending up"
+        : last < first - 0.02
+          ? "trending down"
+          : "stable";
+    lines.push(`EF trend: ${efParts.join(" -> ")} -- ${trend}`);
+    lines.push("");
+  }
+
+  // (b) FTP trend (rolling-average based, per session)
+  const samplesPerPlan = loadRawSamplesPerPlan();
+  const ftpEntries: { ftp: number; date: Date }[] = [];
+  for (const s of sessions) {
+    const samples = samplesPerPlan.get(s.planId);
+    if (!samples) continue;
+    const best5 = bestRollingAvgPower(samples, 5 * 60 * 1000);
+    if (best5 !== null) {
+      ftpEntries.push({ ftp: Math.round(best5 * 0.75), date: s.date });
+    }
+  }
+  if (ftpEntries.length >= 2) {
+    const ftpParts = ftpEntries.map(
+      (e) => `~${e.ftp}W (${formatShortDate(e.date)})`
+    );
+    const first = ftpEntries[0].ftp;
+    const last = ftpEntries[ftpEntries.length - 1].ftp;
+    const trend =
+      last > first + 5
+        ? "improving"
+        : last < first - 5
+          ? "declining"
+          : "stable";
+    lines.push(`FTP trend: ${ftpParts.join(" -> ")} -- ${trend}`);
+    lines.push("");
+  }
+
+  // (c) Recovery quality -- compare HR recovery patterns from coach_ticks
+  try {
+    const db = getDb();
+    const recoveryData: { planId: number; avgRecoveryHr: number }[] = [];
+    for (const s of sessions) {
+      const ticks = db
+        .query(
+          "SELECT response_power FROM coach_ticks WHERE plan_id = ? AND response_power IS NOT NULL ORDER BY elapsed_s"
+        )
+        .all(s.planId) as { response_power: number }[];
+      const recoveryThreshold = s.avgPower * 0.55;
+      const recoveryTicks = ticks.filter(
+        (t) => t.response_power > 0 && t.response_power < recoveryThreshold
+      );
+      if (recoveryTicks.length > 0 && s.hrStats) {
+        recoveryData.push({ planId: s.planId, avgRecoveryHr: s.hrStats.p25 });
+      }
+    }
+    if (recoveryData.length >= 2) {
+      const first = recoveryData[0].avgRecoveryHr;
+      const last = recoveryData[recoveryData.length - 1].avgRecoveryHr;
+      if (last < first - 3) {
+        lines.push("Recovery: HR recovers faster in recent sessions -- good sign.");
+      } else if (last > first + 3) {
+        lines.push(
+          "Recovery: HR recovery slower in recent sessions -- possible accumulated fatigue."
+        );
+      }
+      lines.push("");
+    }
+  } catch {
+    // coach_ticks table may not exist in all DBs
+  }
+
+  // (d) Warmup HR comparison -- avg HR in first 5 minutes across sessions
+  const warmupHrs: { hr: number; date: Date }[] = [];
+  for (const s of sessions) {
+    const samples = samplesPerPlan.get(s.planId);
+    if (!samples || samples.length === 0) continue;
+    const firstTs = samples[0].timestamp_ms;
+    const warmupSamples = samples.filter(
+      (sample) =>
+        sample.timestamp_ms - firstTs < 300_000 &&
+        sample.hr !== null &&
+        sample.hr > 0
+    );
+    if (warmupSamples.length > 0) {
+      const avgWarmupHr = Math.round(
+        warmupSamples.reduce((sum, sample) => sum + sample.hr!, 0) /
+          warmupSamples.length
+      );
+      warmupHrs.push({ hr: avgWarmupHr, date: s.date });
+    }
+  }
+  if (warmupHrs.length >= 2) {
+    const first = warmupHrs[0].hr;
+    const last = warmupHrs[warmupHrs.length - 1].hr;
+    const warmupParts = warmupHrs.map(
+      (w) => `${w.hr} (${formatShortDate(w.date)})`
+    );
+    let warmupNote = "";
+    if (last > first + 5) {
+      warmupNote = " -- rising warmup HR, possible overtraining";
+    } else if (last < first - 5) {
+      warmupNote = " -- lower warmup HR, improving fitness";
+    }
+    lines.push(`Warmup HR (first 5 min): ${warmupParts.join(" -> ")}${warmupNote}`);
+    lines.push("");
+  }
+
+  // (e) Per-zone performance -- analyze samples against plan phases
+  const zonePerf: Record<
+    string,
+    { powers: number[]; hrs: number[]; sessionCount: Set<number> }
+  > = {};
+
+  for (const s of sessions) {
+    const samples = samplesPerPlan.get(s.planId);
+    if (!samples || samples.length === 0 || s.avgPower === 0) continue;
+
+    // Load plan phases to map time -> zone
+    let planPhases: Phase[] | null = null;
+    try {
+      const db = getDb();
+      const planRow = db
+        .query("SELECT phases FROM plans WHERE id = ?")
+        .get(s.planId) as { phases: string } | null;
+      if (!planRow) {
+        try {
+          const prodDb = getProductionDb();
+          const prodRow = prodDb
+            .query("SELECT phases FROM plans WHERE id = ?")
+            .get(s.planId) as { phases: string } | null;
+          if (prodRow) planPhases = JSON.parse(prodRow.phases) as Phase[];
+          prodDb.close();
+        } catch {}
+      } else {
+        planPhases = JSON.parse(planRow.phases) as Phase[];
+      }
+    } catch {}
+
+    if (!planPhases) continue;
+
+    // Build a time-to-zone map from phases
+    const firstTs = samples[0].timestamp_ms;
+    let phaseStartMs = 0;
+    const timeZoneMap: { startMs: number; endMs: number; zone: string }[] = [];
+
+    for (const phase of planPhases) {
+      const durationMs = isRecoveryPhase(phase)
+        ? phase.max_duration_s * 1000
+        : phase.duration_s * 1000;
+      const zone = isRecoveryPhase(phase) ? "Z1" : phase.zone;
+      timeZoneMap.push({
+        startMs: phaseStartMs,
+        endMs: phaseStartMs + durationMs,
+        zone,
+      });
+      phaseStartMs += durationMs;
+    }
+
+    // Map each sample to its zone
+    for (const sample of samples) {
+      const elapsedMs = sample.timestamp_ms - firstTs;
+      const phaseEntry = timeZoneMap.find(
+        (tz) => elapsedMs >= tz.startMs && elapsedMs < tz.endMs
+      );
+      if (!phaseEntry) continue;
+
+      const zone = phaseEntry.zone;
+      if (!zonePerf[zone]) {
+        zonePerf[zone] = { powers: [], hrs: [], sessionCount: new Set() };
+      }
+      if (sample.power !== null && sample.power > 0) {
+        zonePerf[zone].powers.push(sample.power);
+      }
+      if (sample.hr !== null && sample.hr > 0) {
+        zonePerf[zone].hrs.push(sample.hr);
+      }
+      zonePerf[zone].sessionCount.add(s.planId);
+    }
+  }
+
+  const zoneOrder = ["Z1", "Z2", "Z3", "Sweet Spot", "Z4", "Z5"];
+  const zoneLines: string[] = [];
+  for (const zone of zoneOrder) {
+    const perf = zonePerf[zone];
+    if (!perf || perf.powers.length < 5) continue;
+
+    const sortedPower = [...perf.powers].sort((a, b) => a - b);
+    const pLow = Math.round(percentile(sortedPower, 25));
+    const pHigh = Math.round(percentile(sortedPower, 75));
+    const sessionCount = perf.sessionCount.size;
+
+    let hrPart = "";
+    if (perf.hrs.length >= 5) {
+      const sortedHr = [...perf.hrs].sort((a, b) => a - b);
+      const hrLow = Math.round(percentile(sortedHr, 25));
+      const hrHigh = Math.round(percentile(sortedHr, 75));
+      hrPart = ` @ ${hrLow}-${hrHigh} HR`;
+    }
+
+    zoneLines.push(
+      `  ${zone}: ${pLow}-${pHigh}W${hrPart} (${sessionCount} session${sessionCount > 1 ? "s" : ""})`
+    );
+  }
+
+  if (zoneLines.length > 0) {
+    lines.push("Typical performance by zone:");
+    lines.push(...zoneLines);
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+/**
+ * Compact trends for inclusion in per-tick coaching messages (3-4 lines max).
+ */
+export function buildCompactTrends(sessions: SessionSummary[]): string {
+  if (sessions.length < 2) return "";
+
+  const lines: string[] = [];
+
+  // EF trend (one line)
+  const efEntries = sessions
+    .filter((s) => s.efficiencyFactor !== null)
+    .map((s) => ({ ef: s.efficiencyFactor!, date: s.date }));
+
+  if (efEntries.length >= 2) {
+    const first = efEntries[0].ef;
+    const last = efEntries[efEntries.length - 1].ef;
+    const trend =
+      last > first + 0.02
+        ? "up"
+        : last < first - 0.02
+          ? "down"
+          : "stable";
+    lines.push(`EF: ${first.toFixed(2)} -> ${last.toFixed(2)} (${trend})`);
+  }
+
+  // Warmup HR trend (one line)
+  const samplesPerPlan = loadRawSamplesPerPlan();
+  const warmupHrs: number[] = [];
+  for (const s of sessions) {
+    const samples = samplesPerPlan.get(s.planId);
+    if (!samples || samples.length === 0) continue;
+    const firstTs = samples[0].timestamp_ms;
+    const warmupSamples = samples.filter(
+      (sample) =>
+        sample.timestamp_ms - firstTs < 300_000 &&
+        sample.hr !== null &&
+        sample.hr > 0
+    );
+    if (warmupSamples.length > 0) {
+      warmupHrs.push(
+        Math.round(
+          warmupSamples.reduce((sum, sample) => sum + sample.hr!, 0) /
+            warmupSamples.length
+        )
+      );
+    }
+  }
+  if (warmupHrs.length >= 2) {
+    const first = warmupHrs[0];
+    const last = warmupHrs[warmupHrs.length - 1];
+    if (Math.abs(last - first) > 3) {
+      lines.push(
+        `Warmup HR: ${first} -> ${last}${last > first + 5 ? " (watch fatigue)" : ""}`
+      );
+    }
+  }
+
+  // FTP estimate trend (one line)
+  const ftpEntries: number[] = [];
+  for (const s of sessions) {
+    const samples = samplesPerPlan.get(s.planId);
+    if (!samples) continue;
+    const best5 = bestRollingAvgPower(samples, 5 * 60 * 1000);
+    if (best5 !== null) ftpEntries.push(Math.round(best5 * 0.75));
+  }
+  if (ftpEntries.length >= 2) {
+    const first = ftpEntries[0];
+    const last = ftpEntries[ftpEntries.length - 1];
+    if (Math.abs(last - first) > 3) {
+      lines.push(`FTP est: ~${first}W -> ~${last}W`);
+    }
   }
 
   return lines.join("\n");
