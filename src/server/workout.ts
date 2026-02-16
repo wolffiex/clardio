@@ -391,10 +391,9 @@ async function onCoachTick(): Promise<void> {
 
 function buildUserMessage(isStart: boolean): string {
   const elapsed = getElapsedMs();
-  const elapsedStr = formatElapsed(elapsed);
   const sections: string[] = [];
 
-  // Compute avg latency for use in closing section
+  // Compute avg latency for projecting phase timing forward
   let avgLatencyMs = 0;
   if (!isStart && tickLatencies.length > 0) {
     const recentLatencies = tickLatencies.slice(-5);
@@ -402,11 +401,18 @@ function buildUserMessage(isStart: boolean): string {
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
   }
 
-  // Pre-compute phase info (used by multiple sections below)
+  // Pre-compute phase info, projected forward by avg latency so the coach
+  // sees timing that accounts for API response delay (presented as fact,
+  // no mention of latency or projection to the model).
   let phaseInfo: { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number } =
     { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
   if (currentPlan) {
-    phaseInfo = getCurrentPhaseInfo(elapsed);
+    const raw = getCurrentPhaseInfo(elapsed);
+    phaseInfo = {
+      currentPhase: raw.currentPhase,
+      phaseElapsed: raw.phaseElapsed + avgLatencyMs,
+      phaseRemaining: Math.max(0, raw.phaseRemaining - avgLatencyMs),
+    };
   }
 
   // =========================================================================
@@ -667,6 +673,41 @@ function buildUserMessage(isStart: boolean): string {
       sections.push("No samples in last 15s");
     }
 
+    // Phase averages and workout max HR
+    const maxHr = samples.length > 0
+      ? Math.max(...samples.map((s) => s.hr))
+      : 0;
+    const { phaseElapsed: rawPhaseElapsed } = getCurrentPhaseInfo(elapsed);
+    let phaseSamples = rawPhaseElapsed > 0
+      ? samples.filter((s) => s.receivedAt >= Date.now() - rawPhaseElapsed)
+      : [];
+
+    // Right after a phase transition, phaseElapsed is near 0 so no samples
+    // exist yet for the new phase. Fall back to the last 15s of samples
+    // (spanning the phase boundary) so the coach never sees "Phase avg: --".
+    if (phaseSamples.length === 0) {
+      phaseSamples = getRecentSamples(15_000);
+    }
+
+    if (phaseSamples.length > 0) {
+      const avgPhasePower = Math.round(
+        phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
+      );
+      const avgPhaseHr = Math.round(
+        phaseSamples.reduce((s, x) => s + x.hr, 0) / phaseSamples.length
+      );
+      const avgPhaseCadence = Math.round(
+        phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
+      );
+      sections.push(
+        `Phase avg: ${avgPhasePower}W ${avgPhaseHr}bpm ${avgPhaseCadence}rpm | Workout max HR: ${maxHr}`
+      );
+    } else {
+      sections.push(
+        `Phase avg: -- | Workout max HR: ${maxHr}`
+      );
+    }
+
     // HR trajectory (current HR + trend, grouped with recent metrics)
     const hrTrajectory = buildHrTrajectory();
     if (hrTrajectory) {
@@ -700,64 +741,7 @@ function buildUserMessage(isStart: boolean): string {
     sections.push(previousCoachNote);
   }
 
-  // =========================================================================
-  // 10. WHEN THIS ARRIVES — Timing: latency-adjusted timing context (always last)
-  // =========================================================================
-
-  if (!isStart) {
-    sections.push("");
-    sections.push("## When This Arrives");
-
-    // Latency-adjusted phase timing: project forward by avg latency
-    const { currentPhase: closingPhase, phaseElapsed: closingPhaseElapsed, phaseRemaining: closingPhaseRemaining } =
-      getCurrentPhaseInfo(elapsed);
-    const adjustedElapsed = elapsed + avgLatencyMs;
-    const adjustedPhaseElapsed = closingPhaseElapsed + avgLatencyMs;
-    const adjustedPhaseRemaining = Math.max(0, closingPhaseRemaining - avgLatencyMs);
-    const avgLatencySec = avgLatencyMs / 1000;
-
-    sections.push(
-      `Workout elapsed: ${formatElapsed(adjustedElapsed)} | Phase: ${formatElapsed(adjustedPhaseElapsed)} elapsed, ${formatElapsed(adjustedPhaseRemaining)} remaining`
-    );
-    sections.push(
-      `Avg response time: ${avgLatencySec.toFixed(1)}s | Your message displays at ~${formatElapsed(adjustedElapsed)}`
-    );
-
-    // Phase averages and max HR
-    const maxHr = samples.length > 0
-      ? Math.max(...samples.map((s) => s.hr))
-      : 0;
-    const { phaseElapsed: statusPhaseElapsed } = getCurrentPhaseInfo(elapsed);
-    let phaseSamples = statusPhaseElapsed > 0
-      ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
-      : [];
-
-    // Right after a phase transition, phaseElapsed is near 0 so no samples
-    // exist yet for the new phase. Fall back to the last 15s of samples
-    // (spanning the phase boundary) so the coach never sees "Phase avg: --".
-    if (phaseSamples.length === 0) {
-      phaseSamples = getRecentSamples(15_000);
-    }
-
-    if (phaseSamples.length > 0) {
-      const avgPower = Math.round(
-        phaseSamples.reduce((s, x) => s + x.power, 0) / phaseSamples.length
-      );
-      const avgHr = Math.round(
-        phaseSamples.reduce((s, x) => s + x.hr, 0) / phaseSamples.length
-      );
-      const avgCadence = Math.round(
-        phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
-      );
-      sections.push(
-        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr}`
-      );
-    } else {
-      sections.push(
-        `Phase avg: -- | Max HR: ${maxHr}`
-      );
-    }
-  } else {
+  if (isStart) {
     sections.push("");
     sections.push(
       "Workout starting. Greet the rider and set initial warmup targets."
