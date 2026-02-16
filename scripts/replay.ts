@@ -293,13 +293,10 @@ function buildReplayUserMessage(
           `${marker} ${phase.name}: recovery (HR<${phase.target_hr}) ${phase.position} ${phase.cadence}rpm`
         );
       } else {
-        const cadenceStr = typeof phase.cadence === "string"
-          ? phase.cadence
-          : `${(phase as any).cadence[0]}-${(phase as any).cadence[1]}`;
         const zoneName = phase.zone;
         const durationMin = Math.round(durationS / 60);
         sections.push(
-          `${marker} ${phase.name}: ${durationMin}min ${zoneName} ${phase.position} ${cadenceStr}rpm`
+          `${marker} ${phase.name}: ${durationMin}min ${zoneName} ${phase.position} ${phase.cadence}rpm`
         );
       }
     }
@@ -326,11 +323,8 @@ function buildReplayUserMessage(
       );
       sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
     } else {
-      const cadenceStr = typeof currentPhase.cadence === "string"
-        ? currentPhase.cadence
-        : `${(currentPhase as any).cadence[0]}-${(currentPhase as any).cadence[1]}`;
       sections.push(
-        `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${cadenceStr}rpm`
+        `${currentPhase.name} | ${currentPhase.zone} | ${currentPhase.position} | ${currentPhase.cadence}rpm`
       );
       sections.push(
         `Phase time: ${formatElapsed(phaseElapsed)} elapsed, ${formatElapsed(phaseRemaining)} remaining`
@@ -348,11 +342,8 @@ function buildReplayUserMessage(
             `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | recovery | ${nextPhase.position} | ${nextPhase.cadence}rpm`
           );
         } else {
-          const nextCadenceStr = typeof nextPhase.cadence === "string"
-            ? nextPhase.cadence
-            : `${(nextPhase as any).cadence[0]}-${(nextPhase as any).cadence[1]}`;
           sections.push(
-            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextCadenceStr}rpm`
+            `\u23ED NEXT (in ${remainingSec}s): ${nextPhase.name} | ${nextPhase.zone} | ${nextPhase.position} | ${nextPhase.cadence}rpm`
           );
         }
       }
