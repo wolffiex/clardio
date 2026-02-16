@@ -653,9 +653,16 @@ function buildUserMessage(isStart: boolean): string {
     const maxHr = samples.length > 0
       ? Math.max(...samples.map((s) => s.hr))
       : 0;
-    const phaseSamples = statusPhaseElapsed > 0
+    let phaseSamples = statusPhaseElapsed > 0
       ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
       : [];
+
+    // Right after a phase transition, phaseElapsed is near 0 so no samples
+    // exist yet for the new phase. Fall back to the last 15s of samples
+    // (spanning the phase boundary) so the coach never sees "Phase avg: --".
+    if (phaseSamples.length === 0) {
+      phaseSamples = getRecentSamples(15_000);
+    }
 
     if (phaseSamples.length > 0) {
       const avgPower = Math.round(
