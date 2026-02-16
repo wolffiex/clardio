@@ -18,9 +18,9 @@ import * as readline from "readline";
 
 const SERVER = "http://localhost:3000";
 
-let hr = 120;
+let hr = 88;
 let cadence = 80;
-let power = 150;
+let power = 100;
 
 const rl = readline.createInterface({
   input: process.stdin,
