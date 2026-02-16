@@ -584,9 +584,7 @@ function estimateFtpFromSessions(sessions: SessionSummary[]): number | null {
 function getMaxHrFromSessions(sessions: SessionSummary[]): number | null {
   const maxHrs = sessions.map((s) => s.maxHr).filter((hr) => hr > 0);
   if (maxHrs.length === 0) return null;
-  // Use the higher of observed max HR and DEFAULT_MAX_HR so that
-  // zones are not compressed by insufficient ride data
-  return Math.max(...maxHrs, DEFAULT_MAX_HR);
+  return Math.max(...maxHrs);
 }
 
 export function buildRiderProfileFromDb(): string {
@@ -1233,9 +1231,10 @@ export function buildCompactTrends(sessions: SessionSummary[]): string {
 // Shared data loader
 // ---------------------------------------------------------------------------
 
-// Default values for new riders with no DB history
-const DEFAULT_MAX_HR = 170;
-const DEFAULT_FTP = 200;
+// Cold-start fallback values for riders with zero session history.
+// Only used when there is NO observed data at all.
+const COLD_START_MAX_HR = 170;
+const COLD_START_FTP = 200;
 
 export function loadRiderData(): {
   riderProfile: string;
@@ -1244,14 +1243,14 @@ export function loadRiderData(): {
   const sessions = loadSessionsFromDb();
   const riderProfile = buildRiderProfileFromDb();
 
-  // Compute zones from DB data, with defaults for new riders
+  // Compute zones from DB data; cold-start fallbacks only when no data exists
   const maxHr = getMaxHrFromSessions(sessions);
   const ftpEstimate = estimateFtpFromSessions(sessions);
 
   const hasDbData = maxHr !== null || ftpEstimate !== null;
 
-  const hrZones = calculateHrZones(maxHr ?? DEFAULT_MAX_HR);
-  const estimatedFtp = ftpEstimate ?? DEFAULT_FTP;
+  const hrZones = calculateHrZones(maxHr ?? COLD_START_MAX_HR);
+  const estimatedFtp = ftpEstimate ?? COLD_START_FTP;
 
   return {
     riderProfile,
