@@ -456,7 +456,7 @@ function buildUserMessage(isStart: boolean): string {
           );
           sections.push(getPreviousPhaseDescription());
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
           if (positionChanged) {
@@ -470,7 +470,7 @@ function buildUserMessage(isStart: boolean): string {
           }
         } else {
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, current HR: ${latestHr ?? "---"}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
 
@@ -613,16 +613,6 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // HR trajectory (minute-by-minute)
-  if (!isStart) {
-    const hrTrajectory = buildHrTrajectory();
-    if (hrTrajectory) {
-      sections.push("");
-      sections.push("## HR Trajectory");
-      sections.push(hrTrajectory);
-    }
-  }
-
   // Current targets (power only, from most recent coach response)
   sections.push("");
   sections.push("## Current Target");
@@ -660,6 +650,16 @@ function buildUserMessage(isStart: boolean): string {
     sections.push("");
     sections.push("## Session Trends");
     sections.push(cachedSessionTrends);
+  }
+
+  // HR trajectory (simplified: current HR + trend, placed with background context)
+  if (!isStart) {
+    const hrTrajectory = buildHrTrajectory();
+    if (hrTrajectory) {
+      sections.push("");
+      sections.push("## HR Trajectory");
+      sections.push(hrTrajectory);
+    }
   }
 
   // Zones (cached at workout start -- never recalculated mid-workout)
@@ -924,9 +924,8 @@ function getSampleWindow(startAgoMs: number, endAgoMs: number): Sample[] {
 }
 
 /**
- * Build a minute-by-minute HR trajectory going back up to 5 minutes.
- * For each minute mark, averages HR samples within a ~10s window.
- * "now" is the average of the last 15 seconds.
+ * Build a simplified HR trajectory: current HR with zone label and a brief trend.
+ * Compares current 15s average against 2-minute-ago average to determine direction.
  */
 function buildHrTrajectory(): string | null {
   const now = Date.now();
@@ -939,56 +938,30 @@ function buildHrTrajectory(): string | null {
     Math.round(arr.reduce((s, x) => s + x, 0) / arr.length);
 
   const nowHr = avg(nowSamples.map((s) => s.hr));
+  const zoneLabel = cachedHrZones ? ` (${getHrZoneLabel(nowHr, cachedHrZones)})` : "";
 
-  // Minute-mark buckets (5m, 4m, 3m, 2m, 1m ago) with ~10s window
-  const marks: { label: string; minutesAgo: number }[] = [
-    { label: "5m ago", minutesAgo: 5 },
-    { label: "4m ago", minutesAgo: 4 },
-    { label: "3m ago", minutesAgo: 3 },
-    { label: "2m ago", minutesAgo: 2 },
-    { label: "1m ago", minutesAgo: 1 },
-  ];
+  // Compare against ~2 minutes ago for trend
+  const twoMinAgoSamples = samples.filter(
+    (s) => s.hr > 0 && Math.abs(s.receivedAt - (now - 120_000)) <= 15_000
+  );
 
-  const points: { label: string; hr: number; minutesAgo: number }[] = [];
-
-  for (const mark of marks) {
-    const targetMs = now - mark.minutesAgo * 60_000;
-    const windowSamples = samples.filter(
-      (s) => s.hr > 0 && Math.abs(s.receivedAt - targetMs) <= 10_000
-    );
-    if (windowSamples.length > 0) {
-      points.push({
-        label: mark.label,
-        hr: avg(windowSamples.map((s) => s.hr)),
-        minutesAgo: mark.minutesAgo,
-      });
-    }
+  if (twoMinAgoSamples.length === 0) {
+    return `HR ${nowHr}${zoneLabel}`;
   }
 
-  // Need at least 1 historical point plus "now" to be useful
-  if (points.length === 0) return null;
-
-  // Build the timeline string with zone label on "now"
-  const parts = points.map((p) => `${p.label}: ${p.hr}`);
-  const nowZoneLabel = cachedHrZones ? ` (${getHrZoneLabel(nowHr, cachedHrZones)})` : "";
-  parts.push(`now: ${nowHr}${nowZoneLabel}`);
-  const timeline = parts.join(" | ");
-
-  // Calculate trend from earliest available point to now
-  const earliest = points[0];
-  const totalChange = nowHr - earliest.hr;
-  const spanMinutes = earliest.minutesAgo;
+  const twoMinAgoHr = avg(twoMinAgoSamples.map((s) => s.hr));
+  const change = nowHr - twoMinAgoHr;
 
   let trend: string;
-  if (Math.abs(totalChange) <= 2) {
-    trend = `Stable (\u00B1${Math.abs(totalChange)} bpm over ${spanMinutes} min)`;
-  } else if (totalChange > 0) {
-    trend = `Rising +${totalChange} bpm over ${spanMinutes} min`;
+  if (Math.abs(change) <= 2) {
+    trend = "stable";
+  } else if (change > 0) {
+    trend = "rising";
   } else {
-    trend = `Falling ${totalChange} bpm over ${spanMinutes} min`;
+    trend = "falling";
   }
 
-  return `${timeline}\n${trend}`;
+  return `HR ${nowHr}${zoneLabel} — ${trend}`;
 }
 
 function updateCoachHistory(response: CoachResponse): void {
