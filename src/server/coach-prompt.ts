@@ -319,7 +319,7 @@ function summarizeSession(plan: PlanRow, samples: SampleRow[]): SessionSummary |
   };
 }
 
-function loadSessionsFromDb(): SessionSummary[] {
+export function loadSessionsFromDb(): SessionSummary[] {
   const db = getDb();
 
   // Get plans that have samples
@@ -589,7 +589,7 @@ function getMaxHrFromSessions(sessions: SessionSummary[]): number | null {
   return Math.max(...maxHrs, DEFAULT_MAX_HR);
 }
 
-function buildRiderProfileFromDb(): string {
+export function buildRiderProfileFromDb(): string {
   const sessions = loadSessionsFromDb();
 
   if (sessions.length === 0) {
@@ -867,29 +867,45 @@ function generateTrainingZonesSection(config: TrainingZonesConfig): string {
   return lines.join("\n");
 }
 
-function generateCompactZones(config: TrainingZonesConfig): string {
+/**
+ * Planning-specific training zones: HR zones only (no power zones).
+ * The planner prescribes effort via HR zones, not power.
+ */
+function generatePlanningZonesSection(config: TrainingZonesConfig): string {
   const lines: string[] = [];
-  const defaultTag = config.isDefault ? " (estimated defaults)" : "";
-
-  if (config.estimatedFtp !== null) {
-    const ftp = config.estimatedFtp;
-    lines.push(
-      `FTP: ~${ftp}W${defaultTag} | Z1 <${Math.round(ftp * 0.55)} | Z2 ${Math.round(ftp * 0.55)}-${Math.round(ftp * 0.75)} | Z3 ${Math.round(ftp * 0.76)}-${Math.round(ftp * 0.90)} | Z4 ${Math.round(ftp * 0.91)}-${Math.round(ftp * 1.05)} | Z5 ${Math.round(ftp * 1.06)}-${Math.round(ftp * 1.20)} | SS ${Math.round(ftp * 0.88)}-${Math.round(ftp * 0.94)}`
-    );
+  if (config.isDefault) {
+    lines.push("## Training Zones (estimated defaults -- will update from workout data)");
   } else {
-    lines.push(
-      "FTP: unknown | Z1 <55% | Z2 55-75% | Z3 76-90% | Z4 91-105% | Z5 106-120% | SS 88-94%"
-    );
+    lines.push("## Training Zones");
   }
+  lines.push("");
 
   if (config.hrZones !== null) {
-    const z = config.hrZones;
-    lines.push(
-      `LTHR: ${z.lthr}${defaultTag} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`
-    );
+    lines.push(formatHrZones(config.hrZones));
+  } else {
+    lines.push(formatHrZonesGeneric());
   }
 
   return lines.join("\n");
+}
+
+function generateCompactZones(config: TrainingZonesConfig): string {
+  const defaultTag = config.isDefault ? " (estimated defaults)" : "";
+
+  // Single line: FTP as reference point + HR zones
+  if (config.hrZones !== null) {
+    const z = config.hrZones;
+    const ftpPart = config.estimatedFtp !== null
+      ? `Estimated FTP: ~${config.estimatedFtp}W | `
+      : "";
+    return `${ftpPart}LTHR: ${z.lthr}${defaultTag} | Z1 <${z.z1Max + 1} | Z2 ${z.z2Min}-${z.z2Max} | Z3 ${z.z3Min}-${z.z3Max} | Z4 ${z.z4Min}-${z.z4Max} | Z5 ${z.z5Min}-${z.maxHr}`;
+  }
+
+  // Fallback: no HR zones available
+  const ftpPart = config.estimatedFtp !== null
+    ? `Estimated FTP: ~${config.estimatedFtp}W | `
+    : "";
+  return `${ftpPart}HR zones unavailable (no workout data with HR)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,7 +1237,7 @@ export function buildCompactTrends(sessions: SessionSummary[]): string {
 const DEFAULT_MAX_HR = 170;
 const DEFAULT_FTP = 200;
 
-function loadRiderData(): {
+export function loadRiderData(): {
   riderProfile: string;
   zones: TrainingZonesConfig;
 } {
@@ -1304,9 +1320,9 @@ End the workout with a recovery phase for cooling down. Set the target_hr low en
 ### Threshold Intervals
 | Format | Work | Rest | Reps | Notes |
 |--------|------|------|------|-------|
-| Sweet Spot | 20 min @ 88-94% FTP | 5-10 min | 2 | Core threshold workout |
-| Over-Unders | 2 min @ 105% / 2 min @ 95% FTP | - | 10-20 min blocks | Teaches lactate management |
-| Tempo Blocks | 15-20 min @ 76-90% FTP | 5 min | 2-3 | Gray zone -- use sparingly |
+| Sweet Spot | 20 min @ upper Z3/lower Z4 HR | 5-10 min | 2 | Core threshold workout |
+| Over-Unders | 2 min above LTHR / 2 min just below LTHR | - | 10-20 min blocks | Teaches lactate management |
+| Tempo Blocks | 15-20 min @ Z3 HR | 5 min | 2-3 | Gray zone -- use sparingly |
 
 ### Cadence Ranges by Effort
 | Effort | Cadence |
@@ -1345,7 +1361,7 @@ Time cues appropriately: recovery intervals (mental bandwidth available), ragged
 
 ## Instructions
 
-Every phase must be at least 60 seconds. The coach sets a single power target every 10 seconds. It cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases -- each at least 60 seconds. Standing efforts, cadence changes, and intensity changes should each be their own phase.
+Every phase must be at least 60 seconds. The coach adjusts power every 10 seconds based on HR response. Phases must be at least 60 seconds so the coach has time to observe HR and adjust. The coach cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases -- each at least 60 seconds. Standing efforts, cadence changes, and intensity changes should each be their own phase.
 
 Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), cadence ranges, position, and form cues for each phase. Use recovery phases after hard efforts with appropriate HR targets.`;
 }
@@ -1356,13 +1372,20 @@ Design a 45-minute workout. Vary the format from previous plans shown above. Spe
  */
 export function buildPlanningUserPrompt(previousPlans: string): string {
   const { riderProfile, zones } = loadRiderData();
-  const trainingZonesSection = generateTrainingZonesSection(zones);
+  const planningZonesSection = generatePlanningZonesSection(zones);
+
+  // Strip "Power Capabilities" section from rider profile for the planner.
+  // The planner prescribes HR zones, not power.
+  const planningProfile = riderProfile.replace(
+    /Power Capabilities:\n(?:- [^\n]+\n)+\n/g,
+    ""
+  );
 
   const previousCuesSection = buildPreviousCuesSection();
 
-  return `${riderProfile}
+  return `${planningProfile}
 
-${trainingZonesSection}
+${planningZonesSection}
 
 ## Previous Plans
 
@@ -1424,11 +1447,22 @@ Terse, dry, wry. You find quiet amusement in voluntary suffering. Short sentence
 
 Examples: "Legs still attached. Good." / "HR climbing. Body noticed." / "That's one way to do it." / "Still here. So are you." / "There it is." / "Not today." / "That's data."
 
+## Driving Improvement
+
+You are not just executing a plan -- you are improving this rider. Use the session comparison data to push appropriately:
+- If the rider produced higher power at the same HR vs last session, acknowledge it. Something's working.
+- If HR is below the target zone, there's room to push. Do not let the rider coast at the zone floor.
+- If warmup HR is elevated vs recent sessions, back off. The body needs recovery today.
+- Reference the rider's own data. "HR says there's room" is better than arbitrary encouragement.
+Keep it terse. You observe, you push, you back off. No cheerleading.
+
 ## Your Only Lever
 
 Your only control is power. Cadence and position come from the plan -- you do not set them.
 
-Set power targets within the current phase's power range. The power range for the current zone is shown in the Current Phase section. If the rider is above the zone (e.g., doing 180W in a Z2 phase), bring the target down to the zone ceiling. If below, bring it up to the zone floor. Do not anchor on the rider's current power -- anchor on what the phase calls for.
+Use the rider's historical power/HR data (shown in the Rider Profile) to calibrate your initial power target for each phase. Then adjust based on the rider's actual HR response.
+
+The phase specifies a target HR zone. Your job is to find the power that puts the rider in that zone. Do not anchor on arbitrary power numbers -- anchor on the HR response. If HR says the effort is easy, it IS easy regardless of watts.
 
 Do not change power more than once every 3 ticks (30 seconds). When you set a power target, commit to it and observe the HR response before adjusting.
 
@@ -1513,7 +1547,7 @@ The last phase in the plan is always a recovery phase. When you see you are in t
 
 ## Notes
 
-You can optionally include a \`note\` in your response -- an internal observation about the workout trajectory. Notes are not shown to the rider. They are shown back to you on every subsequent message as 'Coach Notes'. Use them to track fatigue patterns, HR trends, plan adjustments, or anything you want to remember. Only write a note when something meaningful changes -- not every message.`;
+The \`note\` field is your message to the next coach tick. It is how you maintain continuity across your 10-second windows. Write what matters: what you are watching, what you plan to do next, how the rider is responding to your last adjustment. You will see your previous note when you are called again. One note, not a list -- make it count.`;
 }
 
 /**
