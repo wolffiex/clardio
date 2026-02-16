@@ -50,7 +50,7 @@ function vary(base: number, range: number, min: number): number {
 
 async function sendMetrics() {
   const payload = {
-    hr: vary(hr, 3, 40),          // +/- 1-3 bpm
+    hr,                            // exact — HR is the manual test signal
     cadence: vary(cadence, 3, 0), // +/- 2-3 rpm
     power: vary(power, 10, 0),    // +/- 5-10 W
   };
