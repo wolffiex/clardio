@@ -395,21 +395,17 @@ function buildUserMessage(isStart: boolean): string {
   const elapsedStr = formatElapsed(elapsed);
   const sections: string[] = [];
 
-  // Timing info at the very top
-  sections.push(`WORKOUT TIME: ${elapsedStr}`);
+  // Compute avg latency for use in closing section
+  let avgLatencyMs = 0;
   if (!isStart && tickLatencies.length > 0) {
     const recentLatencies = tickLatencies.slice(-5);
-    const avgLatencyMs =
+    avgLatencyMs =
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
-    const avgLatencySec = avgLatencyMs / 1000;
-    const displayTime = elapsed + avgLatencyMs;
-    sections.push("");
-    sections.push("## Timing");
-    sections.push(`Elapsed: ${elapsedStr}`);
-    sections.push(`Avg coach latency: ${avgLatencySec.toFixed(1)}s`);
-    sections.push(`Your message displays at ~${formatElapsed(displayTime)}`);
   }
-  sections.push("");
+
+  // =========================================================================
+  // OPENING — Where we are in the workout
+  // =========================================================================
 
   // Plan and current phase
   if (currentPlan) {
@@ -443,25 +439,6 @@ function buildUserMessage(isStart: boolean): string {
     const remainingAfterVisible = planPhases.length - visibleEnd;
     if (remainingAfterVisible > 0 && !currentIsRecovery) {
       sections.push(`   (+${remainingAfterVisible} more phase${remainingAfterVisible === 1 ? "" : "s"})`);
-    }
-
-    // Zones (cached at workout start -- never recalculated mid-workout)
-    sections.push("");
-    sections.push("## Zones");
-    sections.push(cachedZonesText);
-
-    // Rider profile (cached at workout start)
-    if (cachedRiderProfile) {
-      sections.push("");
-      sections.push("## Rider Profile");
-      sections.push(cachedRiderProfile);
-    }
-
-    // Session trends (cached at workout start)
-    if (cachedSessionTrends) {
-      sections.push("");
-      sections.push("## Session Trends");
-      sections.push(cachedSessionTrends);
     }
 
     sections.push("");
@@ -583,40 +560,9 @@ function buildUserMessage(isStart: boolean): string {
     }
   }
 
-  // Current targets (power only, from most recent coach response)
-  sections.push("");
-  sections.push("## Current Target");
-  if (currentPowerTarget !== null) {
-    sections.push(`Power: ${currentPowerTarget}W`);
-  } else {
-    sections.push("No target set yet.");
-  }
-
-  // Recent coach messages
-  if (coachHistory.length > 0) {
-    sections.push("");
-    sections.push("## Recent Coach Messages");
-    for (const h of coachHistory) {
-      sections.push(`[${h.elapsed}] "${h.message}"`);
-    }
-  }
-
-  // Single note from previous tick (baton pass)
-  if (previousCoachNote) {
-    sections.push("");
-    sections.push("## Note from previous tick");
-    sections.push(previousCoachNote);
-  }
-
-  // HR trajectory (minute-by-minute, before recent metrics)
-  if (!isStart) {
-    const hrTrajectory = buildHrTrajectory();
-    if (hrTrajectory) {
-      sections.push("");
-      sections.push("## HR Trajectory");
-      sections.push(hrTrajectory);
-    }
-  }
+  // =========================================================================
+  // MIDDLE — What's happening now
+  // =========================================================================
 
   // Recent metrics (15s rolling averages with trend indicators)
   if (!isStart) {
@@ -664,15 +610,90 @@ function buildUserMessage(isStart: boolean): string {
       sections.push("## Recent Metrics (15s avg)");
       sections.push("No samples in last 15s");
     }
+  }
 
-    // Single-line status at the very end
+  // HR trajectory (minute-by-minute)
+  if (!isStart) {
+    const hrTrajectory = buildHrTrajectory();
+    if (hrTrajectory) {
+      sections.push("");
+      sections.push("## HR Trajectory");
+      sections.push(hrTrajectory);
+    }
+  }
+
+  // Current targets (power only, from most recent coach response)
+  sections.push("");
+  sections.push("## Current Target");
+  if (currentPowerTarget !== null) {
+    sections.push(`Power: ${currentPowerTarget}W`);
+  } else {
+    sections.push("No target set yet.");
+  }
+
+  // Single note from previous tick (baton pass)
+  if (previousCoachNote) {
     sections.push("");
-    sections.push("## Status");
-    const { currentPhase: statusPhase, phaseElapsed: statusPhaseElapsed } =
+    sections.push("## Note from previous tick");
+    sections.push(previousCoachNote);
+  }
+
+  // Recent coach messages
+  if (coachHistory.length > 0) {
+    sections.push("");
+    sections.push("## Recent Coach Messages");
+    for (const h of coachHistory) {
+      sections.push(`[${h.elapsed}] "${h.message}"`);
+    }
+  }
+
+  // Rider profile (cached at workout start)
+  if (cachedRiderProfile) {
+    sections.push("");
+    sections.push("## Rider Profile");
+    sections.push(cachedRiderProfile);
+  }
+
+  // Session trends (cached at workout start)
+  if (cachedSessionTrends) {
+    sections.push("");
+    sections.push("## Session Trends");
+    sections.push(cachedSessionTrends);
+  }
+
+  // Zones (cached at workout start -- never recalculated mid-workout)
+  sections.push("");
+  sections.push("## Zones");
+  sections.push(cachedZonesText);
+
+  // =========================================================================
+  // CLOSING — When your words arrive
+  // =========================================================================
+
+  if (!isStart) {
+    sections.push("");
+    sections.push("## When This Arrives");
+
+    // Latency-adjusted phase timing: project forward by avg latency
+    const { currentPhase: closingPhase, phaseElapsed: closingPhaseElapsed, phaseRemaining: closingPhaseRemaining } =
       getCurrentPhaseInfo(elapsed);
+    const adjustedElapsed = elapsed + avgLatencyMs;
+    const adjustedPhaseElapsed = closingPhaseElapsed + avgLatencyMs;
+    const adjustedPhaseRemaining = Math.max(0, closingPhaseRemaining - avgLatencyMs);
+    const avgLatencySec = avgLatencyMs / 1000;
+
+    sections.push(
+      `Workout elapsed: ${formatElapsed(adjustedElapsed)} | Phase: ${formatElapsed(adjustedPhaseElapsed)} elapsed, ${formatElapsed(adjustedPhaseRemaining)} remaining`
+    );
+    sections.push(
+      `Avg response time: ${avgLatencySec.toFixed(1)}s | Your message displays at ~${formatElapsed(adjustedElapsed)}`
+    );
+
+    // Phase averages and max HR
     const maxHr = samples.length > 0
       ? Math.max(...samples.map((s) => s.hr))
       : 0;
+    const { phaseElapsed: statusPhaseElapsed } = getCurrentPhaseInfo(elapsed);
     let phaseSamples = statusPhaseElapsed > 0
       ? samples.filter((s) => s.receivedAt >= Date.now() - statusPhaseElapsed)
       : [];
@@ -694,13 +715,12 @@ function buildUserMessage(isStart: boolean): string {
       const avgCadence = Math.round(
         phaseSamples.reduce((s, x) => s + x.cadence, 0) / phaseSamples.length
       );
-      const statusHrZone = cachedHrZones ? `(${getHrZoneLabel(avgHr, cachedHrZones)})` : "";
       sections.push(
-        `Phase avg: ${avgPower}W ${avgHr}bpm${statusHrZone} ${avgCadence}rpm | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+        `Phase avg: ${avgPower}W ${avgHr}bpm ${avgCadence}rpm | Max HR: ${maxHr}`
       );
     } else {
       sections.push(
-        `Phase avg: -- | Max HR: ${maxHr} | Elapsed: ${elapsedStr}`
+        `Phase avg: -- | Max HR: ${maxHr}`
       );
     }
   } else {
