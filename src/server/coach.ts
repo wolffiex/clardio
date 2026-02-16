@@ -19,7 +19,6 @@ import {
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
 const COACH_TIMEOUT_MS = 8000; // Under 10s tick interval — prevents coaching calls from overlapping
-const PLAN_TIMEOUT_MS = 30000; // Planning is a one-time startup call, give it more room
 const RETRY_DELAY_MS = 2000;
 
 function isRetryableStatus(err: unknown): boolean {
@@ -50,32 +49,24 @@ async function callPlanner(
   systemPrompt: string,
   userMessage: string
 ): Promise<WorkoutPlan> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
-  try {
-    const response = await client.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: planSchema,
-        },
+  const response = await client.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: planSchema,
       },
-    }, { signal: controller.signal });
-    clearTimeout(timeout);
+    },
+  });
 
-    const textBlock = response.content.find(
-      (b): b is Anthropic.TextBlock => b.type === "text"
-    );
-    if (!textBlock) throw new Error("No text response from planner");
-    return JSON.parse(textBlock.text) as WorkoutPlan;
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+  const textBlock = response.content.find(
+    (b): b is Anthropic.TextBlock => b.type === "text"
+  );
+  if (!textBlock) throw new Error("No text response from planner");
+  return JSON.parse(textBlock.text) as WorkoutPlan;
 }
 
 export async function sendCoachMessage(
