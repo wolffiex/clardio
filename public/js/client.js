@@ -28,7 +28,7 @@ class SSEClient {
       console.error("[SSE] Error, will auto-reconnect", err);
       this.emit("_error", err);
     };
-    const eventTypes = ["connected", "coach", "metrics", "target", "plan"];
+    const eventTypes = ["connected", "coach", "metrics", "phase", "plan"];
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (event) => {
         try {
@@ -76,6 +76,9 @@ function handlePlan(data) {
 }
 function getTimeline() {
   return timeline;
+}
+function getPlan() {
+  return currentPlan;
 }
 
 // src/client/progress.ts
@@ -135,6 +138,7 @@ class UIController {
   targetCadence = null;
   timerStart = 0;
   timerInterval = null;
+  pendingCoach = null;
   constructor() {
     this.elements = {
       coachMessage: document.getElementById("coach-message"),
@@ -176,7 +180,25 @@ class UIController {
     this.elements.time.textContent = formatTime(elapsed);
   }
   updateCoach(event) {
-    this.elements.coachMessage.textContent = event.text;
+    this.elements.coachMessage.textContent = event.text ?? event.message ?? "";
+  }
+  setPendingCoach(event) {
+    this.pendingCoach = event;
+  }
+  checkPendingCoach() {
+    if (!this.pendingCoach)
+      return;
+    const tl = getTimeline();
+    if (!tl)
+      return;
+    const clockOffset = tl.getClockOffset();
+    const localDisplayAt = this.pendingCoach.displayAt + clockOffset;
+    if (Date.now() >= localDisplayAt) {
+      this.elements.coachMessage.textContent = this.pendingCoach.message;
+      this.targetPower = this.pendingCoach.power;
+      this.render();
+      this.pendingCoach = null;
+    }
   }
   updateMetrics(event) {
     this.power = event.power;
@@ -188,26 +210,16 @@ class UIController {
     this.elements.cadence.textContent = displayCadence.toString();
     this.render();
   }
-  updateTarget(event) {
-    if (event) {
-      this.targetPower = event.power;
-      this.targetCadence = event.cadence;
-      const tl = getTimeline();
-      if (tl && tl.hasPlan()) {
-        tl.updatePhase({
-          phaseIndex: event.phaseIndex,
-          phaseName: event.phaseName,
-          phaseStartedAt: event.phaseStartedAt,
-          phaseDuration: event.phaseDuration,
-          isRecovery: event.isRecovery,
-          targetHr: event.targetHr,
-          serverTimestamp: event.serverTimestamp
-        });
-      }
-    } else {
-      this.targetPower = null;
-      this.targetCadence = null;
+  handlePhase(phaseIndex, plan) {
+    if (!plan || !plan.phases || phaseIndex < 0 || phaseIndex >= plan.phases.length) {
+      return;
     }
+    const phase = plan.phases[phaseIndex];
+    this.targetCadence = phase.cadence ?? null;
+    this.render();
+  }
+  updatePowerTarget(power) {
+    this.targetPower = power;
     this.render();
   }
   setConnectionStatus(status) {
@@ -299,34 +311,37 @@ class TimelineController {
   container;
   phases = [];
   currentPhaseIndex = -1;
-  isRecovery = false;
-  phaseName = "";
-  targetHr = undefined;
-  phaseStartedAt = 0;
-  phaseDuration = null;
+  endsAt = null;
+  previousEndsAt = null;
+  currentPhaseStart = 0;
   clockOffset = 0;
   timerInterval = null;
+  tickCallback = null;
   constructor() {
     this.container = document.getElementById("timeline");
   }
   setPlan(phases) {
     this.phases = phases;
     this.currentPhaseIndex = -1;
+    this.previousEndsAt = null;
     this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
   }
   updatePhase(info) {
+    this.clockOffset = Date.now() - info.server_now;
+    this.currentPhaseStart = this.previousEndsAt !== null ? this.previousEndsAt + this.clockOffset : Date.now();
+    this.endsAt = info.ends_at;
+    this.previousEndsAt = info.ends_at;
     this.currentPhaseIndex = info.phaseIndex;
-    this.phaseName = info.phaseName;
-    this.isRecovery = info.isRecovery;
-    this.targetHr = info.targetHr;
-    this.phaseStartedAt = info.phaseStartedAt;
-    this.phaseDuration = info.phaseDuration;
-    const localTimestamp = Date.now();
-    this.clockOffset = localTimestamp - info.serverTimestamp;
     this.startTimer();
     this.render();
+  }
+  getClockOffset() {
+    return this.clockOffset;
+  }
+  onTick(callback) {
+    this.tickCallback = callback;
   }
   hasPlan() {
     return this.phases.length > 0;
@@ -343,14 +358,20 @@ class TimelineController {
   }
   tickTimer() {
     this.updateDetailLine();
+    if (this.tickCallback)
+      this.tickCallback();
   }
   getClientSeconds() {
-    const elapsed = (Date.now() - this.phaseStartedAt - this.clockOffset) / 1000;
-    if (this.isRecovery || this.phaseDuration === null) {
-      return { elapsed: Math.max(0, elapsed), remaining: null };
+    if (this.endsAt === null) {
+      const elapsed2 = (Date.now() - this.currentPhaseStart) / 1000;
+      return { elapsed: Math.max(0, elapsed2), remaining: null };
     }
-    const remaining = Math.max(0, this.phaseDuration - elapsed);
-    return { elapsed: Math.max(0, elapsed), remaining };
+    const clientEndsAt = this.endsAt + this.clockOffset;
+    const remaining = (clientEndsAt - Date.now()) / 1000;
+    const phase = this.phases[this.currentPhaseIndex];
+    const phaseDuration = phase ? getPhaseDuration(phase) : 60;
+    const elapsed = phaseDuration - Math.max(0, remaining);
+    return { elapsed: Math.max(0, elapsed), remaining: Math.max(0, remaining) };
   }
   render() {
     if (this.phases.length === 0)
@@ -376,14 +397,17 @@ class TimelineController {
       const showName = widthPercent > 8;
       const nameAbbrev = showName ? abbreviateName(phase.name, widthPercent > 15 ? 12 : 6) : "";
       let progressHtml = "";
-      if (isCurrent && this.phaseDuration !== null && this.phaseDuration > 0) {
-        const { elapsed } = this.getClientSeconds();
-        if (this.isRecovery) {
-          const progressPercent = Math.min(100, elapsed / this.phaseDuration * 100);
-          progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/10 rounded-sm recovery-progress" style="width:${progressPercent}%"></div>`;
-        } else {
-          const progressPercent = Math.min(100, elapsed / this.phaseDuration * 100);
-          progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
+      if (isCurrent) {
+        const phaseDur = getPhaseDuration(phase);
+        if (phaseDur > 0) {
+          const { elapsed } = this.getClientSeconds();
+          if (isRecoveryPhase) {
+            const progressPercent = Math.min(100, elapsed / phaseDur * 100);
+            progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/10 rounded-sm recovery-progress" style="width:${progressPercent}%"></div>`;
+          } else {
+            const progressPercent = Math.min(100, elapsed / phaseDur * 100);
+            progressHtml = `<div class="absolute inset-y-0 left-0 bg-white/15 rounded-sm" style="width:${progressPercent}%"></div>`;
+          }
         }
       }
       const recoveryBorder = isRecoveryPhase && !isCurrent ? "border border-dashed border-slate-500/40" : "";
@@ -408,13 +432,13 @@ class TimelineController {
       return "";
     }
     const phase = this.phases[this.currentPhaseIndex];
+    const isRecovery = phase.type === "recovery";
     const parts = [];
     parts.push(`<span class="text-white">${phase.name}</span>`);
-    if (this.isRecovery) {
+    if (isRecovery) {
       parts.push('<span class="text-slate-400">Recovery</span>');
-      const hrTarget = this.targetHr ?? phase.target_hr;
-      if (hrTarget) {
-        parts.push(`<span class="text-slate-300">HR ↓${hrTarget}</span>`);
+      if (phase.target_hr) {
+        parts.push(`<span class="text-slate-300">HR ↓${phase.target_hr}</span>`);
       }
       const { elapsed } = this.getClientSeconds();
       parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(Math.floor(elapsed))}</span>`);
@@ -428,11 +452,9 @@ class TimelineController {
       if (phase.position) {
         parts.push(`<span class="text-gray-500">${phase.position}</span>`);
       }
-      if (this.phaseDuration !== null && this.phaseDuration > 0) {
-        const { remaining } = this.getClientSeconds();
-        if (remaining !== null) {
-          parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(Math.floor(remaining))}</span>`);
-        }
+      const { remaining } = this.getClientSeconds();
+      if (remaining !== null) {
+        parts.push(`<span class="text-white text-base font-bold tabular-nums">${formatDuration(Math.floor(remaining))}</span>`);
       }
     }
     parts.push(`<span class="text-gray-600">${this.currentPhaseIndex + 1}/${this.phases.length}</span>`);
@@ -467,6 +489,7 @@ var sse = new SSEClient;
 var ui = new UIController;
 var timeline2 = new TimelineController;
 initTimeline(timeline2);
+timeline2.onTick(() => ui.checkPendingCoach());
 var params = new URLSearchParams(window.location.search);
 var testMode = params.has("power") || params.has("target_power");
 if (testMode) {
@@ -513,33 +536,20 @@ if (testMode) {
     const isRecoveryPhase = currentPhase?.type === "recovery";
     const phaseDuration = currentPhase ? isRecoveryPhase ? null : currentPhase.duration_s ?? 60 : 60;
     const now = Date.now();
-    const fakePhaseStartedAt = now - phaseElapsed * 1000;
+    const endsAt = phaseDuration !== null ? now + (phaseDuration - phaseElapsed) * 1000 : null;
     timeline2.updatePhase({
       phaseIndex,
-      phaseName: currentPhase?.name ?? "",
-      phaseStartedAt: fakePhaseStartedAt,
-      phaseDuration,
-      isRecovery: isRecoveryPhase,
-      targetHr: isRecoveryPhase ? currentPhase?.target_hr : undefined,
-      serverTimestamp: now
+      ends_at: endsAt,
+      server_now: now
     });
+    ui.handlePhase(phaseIndex, samplePlan);
   }
   const targetPower = params.get("target_power");
-  const targetCadence = params.get("target_cadence");
-  if (targetPower || targetCadence) {
-    const testNow = Date.now();
-    ui.updateTarget({
-      power: targetPower ? parseInt(targetPower) : null,
-      cadence: targetCadence ? parseInt(targetCadence) : null,
-      position: null,
-      phaseIndex: 0,
-      phaseName: "",
-      phaseStartedAt: testNow,
-      phaseDuration: null,
-      isRecovery: false,
-      serverTimestamp: testNow
-    });
+  if (targetPower) {
+    ui.updatePowerTarget(parseInt(targetPower));
   }
+  const targetCadence = params.get("target_cadence");
+  if (targetCadence && phaseIndex < 0) {}
   const power = params.get("power");
   const cadence = params.get("cadence");
   const hr = params.get("hr");
@@ -547,8 +557,7 @@ if (testMode) {
     ui.updateMetrics({
       power: parseInt(power),
       hr: hr ? parseInt(hr) : 120,
-      cadence: parseInt(cadence),
-      elapsed: 10
+      cadence: parseInt(cadence)
     });
   }
   const power2 = params.get("power2");
@@ -557,8 +566,7 @@ if (testMode) {
     ui.updateMetrics({
       power: parseInt(power2),
       hr: hr ? parseInt(hr) : 120,
-      cadence: parseInt(cadence2),
-      elapsed: 20
+      cadence: parseInt(cadence2)
     });
   }
 } else {
@@ -568,13 +576,22 @@ if (testMode) {
     ui.startTimer();
   });
   sse.on("coach", (data) => {
-    ui.updateCoach(data);
+    ui.setPendingCoach(data);
   });
   sse.on("metrics", (data) => {
     ui.updateMetrics(data);
   });
-  sse.on("target", (data) => {
-    ui.updateTarget(data);
+  sse.on("phase", (data) => {
+    const event = data;
+    const plan = getPlan();
+    if (timeline2.hasPlan()) {
+      timeline2.updatePhase({
+        phaseIndex: event.phaseIndex,
+        ends_at: event.ends_at,
+        server_now: event.server_now
+      });
+    }
+    ui.handlePhase(event.phaseIndex, plan);
   });
   sse.on("plan", (data) => {
     handlePlan(data);

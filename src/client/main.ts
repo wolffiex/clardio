@@ -2,7 +2,7 @@ import { SSEClient } from "./sse-client";
 import { UIController } from "./ui";
 import { handlePlan, initTimeline, getPlan } from "./handlers";
 import { TimelineController } from "./timeline";
-import type { CoachEvent, MetricsEvent, PhaseEvent } from "../shared/types";
+import type { MetricsEvent, PhaseEvent, CoachEvent } from "../shared/types";
 
 // Screen Wake Lock - prevent device from sleeping during workout
 let wakeLock: WakeLockSentinel | null = null;
@@ -36,6 +36,7 @@ const sse = new SSEClient();
 const ui = new UIController();
 const timeline = new TimelineController();
 initTimeline(timeline);
+timeline.onTick(() => ui.checkPendingCoach());
 
 // Check for test params in URL
 const params = new URLSearchParams(window.location.search);
@@ -155,20 +156,7 @@ if (testMode) {
   });
 
   sse.on("coach", (data) => {
-    const event = data as CoachEvent;
-    const clockOffset = timeline.getClockOffset();
-    const localDisplayAt = event.displayAt + clockOffset;
-    const delay = localDisplayAt - Date.now();
-    if (delay > 0) {
-      setTimeout(() => {
-        ui.updateCoach({ text: event.message });
-        ui.updatePowerTarget(event.power);
-      }, delay);
-    } else {
-      // Already past displayAt, apply immediately
-      ui.updateCoach({ text: event.message });
-      ui.updatePowerTarget(event.power);
-    }
+    ui.setPendingCoach(data as CoachEvent);
   });
 
   sse.on("metrics", (data) => {

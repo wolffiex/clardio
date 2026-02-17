@@ -1,4 +1,4 @@
-import type { MetricsEvent } from "../shared/types";
+import type { MetricsEvent, CoachEvent } from "../shared/types";
 import { formatTime, getTimeline, getPlan } from "./handlers";
 import {
   calculateFillPercent,
@@ -43,6 +43,7 @@ export class UIController {
   private targetCadence: number | null = null;
   private timerStart: number = 0;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
+  private pendingCoach: CoachEvent | null = null;
 
   constructor() {
     this.elements = {
@@ -91,6 +92,24 @@ export class UIController {
 
   updateCoach(event: { text?: string; message?: string }): void {
     this.elements.coachMessage.textContent = event.text ?? event.message ?? "";
+  }
+
+  setPendingCoach(event: CoachEvent): void {
+    this.pendingCoach = event;
+  }
+
+  checkPendingCoach(): void {
+    if (!this.pendingCoach) return;
+    const tl = getTimeline();
+    if (!tl) return;
+    const clockOffset = tl.getClockOffset();
+    const localDisplayAt = this.pendingCoach.displayAt + clockOffset;
+    if (Date.now() >= localDisplayAt) {
+      this.elements.coachMessage.textContent = this.pendingCoach.message;
+      this.targetPower = this.pendingCoach.power;
+      this.render();
+      this.pendingCoach = null;
+    }
   }
 
   updateMetrics(event: MetricsEvent): void {

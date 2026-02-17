@@ -93,6 +93,7 @@ export class TimelineController {
 
   // Client-side countdown timer state
   private timerInterval: ReturnType<typeof setInterval> | null = null;
+  private tickCallback: (() => void) | null = null;
 
   constructor() {
     this.container = document.getElementById("timeline")!;
@@ -141,6 +142,13 @@ export class TimelineController {
   }
 
   /**
+   * Register a callback to be called on each 1-second timer tick.
+   */
+  onTick(callback: () => void): void {
+    this.tickCallback = callback;
+  }
+
+  /**
    * Check if we have plan data
    */
   hasPlan(): boolean {
@@ -165,6 +173,7 @@ export class TimelineController {
 
   private tickTimer(): void {
     this.updateDetailLine();
+    if (this.tickCallback) this.tickCallback();
   }
 
   /**
