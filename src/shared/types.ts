@@ -1,8 +1,17 @@
 // SSE Event Types (Server -> Client)
 
-// coach event - from Claude
+// Phase change event - sent on phase transitions
+export interface PhaseEvent {
+  phaseIndex: number;
+  ends_at: number | null;  // server timestamp (ms) when phase ends, null for recovery
+  server_now: number;       // server Date.now() for clock sync
+}
+
+// Coach message event - sent every tick, scheduled on client clock
 export interface CoachEvent {
-  text: string;
+  message: string;
+  power: number;
+  displayAt: number;  // server timestamp (ms) when client should display this
 }
 
 // metrics event - POST payload from sensors (no elapsed - server tracks it)
@@ -12,20 +21,5 @@ export interface MetricsEvent {
   cadence: number;
 }
 
-// target event - power from coach, cadence + position from plan phase
-export interface TargetEvent {
-  power: number | null;
-  cadence: number | null;
-  position: string | null;
-  phaseIndex: number;
-  phaseName: string;
-  phaseStartedAt: number;      // server timestamp (Date.now()) when this phase began
-  phaseDuration: number | null; // total seconds for timed phases, null for recovery
-  isRecovery: boolean;
-  targetHr?: number;           // for recovery: HR must drop below this
-  serverTimestamp: number;     // Date.now() when this event was built
-}
-
 // Union type for all SSE events
-export type SSEEventType = "coach" | "metrics" | "target" | "connected" | "plan";
-
+export type SSEEventType = "connected" | "coach" | "metrics" | "phase" | "plan";

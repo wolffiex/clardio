@@ -224,10 +224,21 @@ export async function startWorkout(): Promise<void> {
       })
     });
 
+    // 3.6 Broadcast initial phase event
+    {
+      const firstPhase = currentPlan.phases[0];
+      broadcast("phase", {
+        phaseIndex: 0,
+        ends_at: isRecoveryPhase(firstPhase) ? null : workoutStartTime + firstPhase.duration_s * 1000,
+        server_now: Date.now(),
+      });
+    }
+
     // 4. Build coaching system prompt (done once, reused every tick — static)
     coachingPrompt = buildCoachingSystemPrompt();
 
     // 5. Send initial coach message
+    const initialTickStart = Date.now();
     const initialMessage = buildUserMessage(true);
     console.log("--- Coach Input ---");
     console.log(initialMessage);
@@ -238,7 +249,7 @@ export async function startWorkout(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response);
+      handleCoachResponse(response, initialTickStart);
     }
 
     // 5.5 Save initial coach tick (skip in replay mode)
@@ -352,6 +363,8 @@ export function getElapsed(): number {
 async function onCoachTick(): Promise<void> {
   if (!workoutActive || !currentPlan || samples.length === 0) return;
 
+  const tickStartTime = Date.now();
+
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
 
@@ -367,7 +380,7 @@ async function onCoachTick(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response);
+      handleCoachResponse(response, tickStartTime);
     }
 
     // Save coach tick to DB (skip in replay mode)
@@ -393,25 +406,28 @@ function buildUserMessage(isStart: boolean): string {
   const elapsed = getElapsedMs();
   const sections: string[] = [];
 
-  // Compute avg latency for projecting phase timing forward
-  let avgLatencyMs = 0;
+  // Compute projection: the coach sees phase timing projected forward by this
+  // amount so its advice matches the moment the client displays it.
+  // Same projectionMs is used for displayAt on the coach event.
+  let projectionMs = 5000;
   if (!isStart && tickLatencies.length > 0) {
     const recentLatencies = tickLatencies.slice(-5);
-    avgLatencyMs =
+    const avgLatencyMs =
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
+    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
   }
 
-  // Pre-compute phase info, projected forward by avg latency so the coach
-  // sees timing that accounts for API response delay (presented as fact,
-  // no mention of latency or projection to the model).
+  // Pre-compute phase info, projected forward so the coach sees timing that
+  // accounts for API response delay (presented as fact, no mention of
+  // latency or projection to the model).
   let phaseInfo: { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number } =
     { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
   if (currentPlan) {
     const raw = getCurrentPhaseInfo(elapsed);
     phaseInfo = {
       currentPhase: raw.currentPhase,
-      phaseElapsed: raw.phaseElapsed + avgLatencyMs,
-      phaseRemaining: Math.max(0, raw.phaseRemaining - avgLatencyMs),
+      phaseElapsed: raw.phaseElapsed + projectionMs,
+      phaseRemaining: Math.max(0, raw.phaseRemaining - projectionMs),
     };
   }
 
@@ -836,19 +852,13 @@ function advancePhaseIfNeeded(): void {
     recoveryGateClearedAt = null;
     log(`Phase advanced to: ${currentPlan.phases[currentPhaseIndex].name}`);
 
-    // Broadcast target event with new phase info so client timeline updates immediately
+    // Broadcast phase event so client timeline updates immediately
     const newPhase = currentPlan.phases[currentPhaseIndex];
-    broadcast("target", {
-      power: currentPowerTarget,
-      cadence: newPhase.cadence,
-      position: newPhase.position,
+    const phaseStart = phaseStartTimes[currentPhaseIndex];
+    broadcast("phase", {
       phaseIndex: currentPhaseIndex,
-      phaseName: newPhase.name,
-      phaseStartedAt: phaseStartTimes[currentPhaseIndex],
-      phaseDuration: isRecoveryPhase(newPhase) ? null : newPhase.duration_s,
-      isRecovery: isRecoveryPhase(newPhase),
-      targetHr: isRecoveryPhase(newPhase) ? newPhase.target_hr : undefined,
-      serverTimestamp: Date.now(),
+      ends_at: isRecoveryPhase(newPhase) ? null : phaseStart + newPhase.duration_s * 1000,
+      server_now: Date.now(),
     });
   }
 }
@@ -879,9 +889,9 @@ function getLatestHr(): number | null {
 }
 
 /**
- * Handle a coach response: apply power throttling, broadcast targets from plan + coach
+ * Handle a coach response: apply power throttling, broadcast coach event with displayAt
  */
-function handleCoachResponse(response: CoachResponse): void {
+function handleCoachResponse(response: CoachResponse, tickStartTime: number): void {
   const now = Date.now();
 
   // Apply power throttling: only change power if 30s have passed since last change
@@ -897,26 +907,21 @@ function handleCoachResponse(response: CoachResponse): void {
   }
 
   updateCoachHistory(response);
-  broadcast("coach", { text: response.message });
 
-  // Broadcast target: power from coach, cadence + position from plan phase
-  const { currentPhase } = getCurrentPhaseInfo(getElapsedMs());
-  const phaseCadence = currentPhase ? currentPhase.cadence : null;
-  const phasePosition = currentPhase ? currentPhase.position : null;
+  // Compute displayAt: the moment the client should display this message.
+  // Uses the same projection as the phase timing the coach was shown.
+  let projectionMs = 5000;
+  if (tickLatencies.length > 0) {
+    const recentLatencies = tickLatencies.slice(-5);
+    const avgLatencyMs =
+      recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
+    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
+  }
 
-  broadcast("target", {
-    power: effectivePower,
-    cadence: phaseCadence,
-    position: phasePosition,
-    phaseIndex: currentPhaseIndex,
-    phaseName: currentPhase?.name ?? "",
-    phaseStartedAt: phaseStartTimes[currentPhaseIndex] ?? workoutStartTime,
-    phaseDuration: currentPhase
-      ? (isRecoveryPhase(currentPhase) ? null : currentPhase.duration_s)
-      : null,
-    isRecovery: currentPhase ? isRecoveryPhase(currentPhase) : false,
-    targetHr: currentPhase && isRecoveryPhase(currentPhase) ? currentPhase.target_hr : undefined,
-    serverTimestamp: Date.now(),
+  broadcast("coach", {
+    message: response.message,
+    power: effectivePower ?? 0,
+    displayAt: tickStartTime + projectionMs,
   });
 
   log(
