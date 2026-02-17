@@ -1,5 +1,5 @@
-import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
-import { formatTime, getTimeline } from "./handlers";
+import type { MetricsEvent } from "../shared/types";
+import { formatTime, getTimeline, getPlan } from "./handlers";
 import {
   calculateFillPercent,
   getColorFromDistance,
@@ -89,8 +89,8 @@ export class UIController {
     this.elements.time.textContent = formatTime(elapsed);
   }
 
-  updateCoach(event: CoachEvent): void {
-    this.elements.coachMessage.textContent = event.text;
+  updateCoach(event: { text?: string; message?: string }): void {
+    this.elements.coachMessage.textContent = event.text ?? event.message ?? "";
   }
 
   updateMetrics(event: MetricsEvent): void {
@@ -108,28 +108,27 @@ export class UIController {
     this.render();
   }
 
-  updateTarget(event: TargetEvent | null): void {
-    if (event) {
-      this.targetPower = event.power;
-      this.targetCadence = event.cadence;
-
-      // Update timeline with phase info
-      const tl = getTimeline();
-      if (tl && tl.hasPlan()) {
-        tl.updatePhase({
-          phaseIndex: event.phaseIndex,
-          phaseName: event.phaseName,
-          phaseStartedAt: event.phaseStartedAt,
-          phaseDuration: event.phaseDuration,
-          isRecovery: event.isRecovery,
-          targetHr: event.targetHr,
-          serverTimestamp: event.serverTimestamp,
-        });
-      }
-    } else {
-      this.targetPower = null;
-      this.targetCadence = null;
+  /**
+   * Handle a phase change: derive cadence + position targets from the plan
+   * and update the timeline.
+   */
+  handlePhase(phaseIndex: number, plan: any): void {
+    if (!plan || !plan.phases || phaseIndex < 0 || phaseIndex >= plan.phases.length) {
+      return;
     }
+
+    const phase = plan.phases[phaseIndex];
+    this.targetCadence = phase.cadence ?? null;
+    // Position is displayed via the timeline detail line, not a separate UI element
+
+    this.render();
+  }
+
+  /**
+   * Update just the power target (from a scheduled coach event) and re-render.
+   */
+  updatePowerTarget(power: number): void {
+    this.targetPower = power;
     this.render();
   }
 

@@ -1,8 +1,8 @@
 import { SSEClient } from "./sse-client";
 import { UIController } from "./ui";
-import { handlePlan, initTimeline } from "./handlers";
+import { handlePlan, initTimeline, getPlan } from "./handlers";
 import { TimelineController } from "./timeline";
-import type { CoachEvent, MetricsEvent, TargetEvent } from "../shared/types";
+import type { CoachEvent, MetricsEvent, PhaseEvent } from "../shared/types";
 
 // Screen Wake Lock - prevent device from sleeping during workout
 let wakeLock: WakeLockSentinel | null = null;
@@ -91,43 +91,38 @@ if (testMode) {
     };
     handlePlan(samplePlan);
 
-    // Set current phase info
+    // Simulate server timestamps for a PhaseEvent
     const currentPhase = samplePlan.phases[phaseIndex];
     const isRecoveryPhase = currentPhase?.type === "recovery";
     const phaseDuration = currentPhase
       ? (isRecoveryPhase ? null : (currentPhase.duration_s ?? 60))
       : 60;
 
-    // Simulate server timestamps: phase started phaseElapsed seconds ago
     const now = Date.now();
-    const fakePhaseStartedAt = now - phaseElapsed * 1000;
+    // ends_at: server timestamp when phase ends (null for recovery)
+    const endsAt = phaseDuration !== null ? now + (phaseDuration - phaseElapsed) * 1000 : null;
 
     timeline.updatePhase({
       phaseIndex,
-      phaseName: currentPhase?.name ?? "",
-      phaseStartedAt: fakePhaseStartedAt,
-      phaseDuration,
-      isRecovery: isRecoveryPhase,
-      targetHr: isRecoveryPhase ? currentPhase?.target_hr : undefined,
-      serverTimestamp: now,
+      ends_at: endsAt,
+      server_now: now,
     });
+
+    // Derive cadence target from plan phase
+    ui.handlePhase(phaseIndex, samplePlan);
   }
 
   const targetPower = params.get("target_power");
+  if (targetPower) {
+    ui.updatePowerTarget(parseInt(targetPower));
+  }
+
+  // Cadence target comes from plan phase (already set via handlePhase above),
+  // but allow explicit override via URL params for backwards compat
   const targetCadence = params.get("target_cadence");
-  if (targetPower || targetCadence) {
-    const testNow = Date.now();
-    ui.updateTarget({
-      power: targetPower ? parseInt(targetPower) : null,
-      cadence: targetCadence ? parseInt(targetCadence) : null,
-      position: null,
-      phaseIndex: 0,
-      phaseName: "",
-      phaseStartedAt: testNow,
-      phaseDuration: null,
-      isRecovery: false,
-      serverTimestamp: testNow,
-    });
+  if (targetCadence && phaseIndex < 0) {
+    // Only use explicit cadence param if no phase was set (no plan context)
+    // When phaseIndex >= 0, cadence is derived from the plan phase
   }
 
   const power = params.get("power");
@@ -160,15 +155,41 @@ if (testMode) {
   });
 
   sse.on("coach", (data) => {
-    ui.updateCoach(data as CoachEvent);
+    const event = data as CoachEvent;
+    const clockOffset = timeline.getClockOffset();
+    const localDisplayAt = event.displayAt + clockOffset;
+    const delay = localDisplayAt - Date.now();
+    if (delay > 0) {
+      setTimeout(() => {
+        ui.updateCoach({ text: event.message });
+        ui.updatePowerTarget(event.power);
+      }, delay);
+    } else {
+      // Already past displayAt, apply immediately
+      ui.updateCoach({ text: event.message });
+      ui.updatePowerTarget(event.power);
+    }
   });
 
   sse.on("metrics", (data) => {
     ui.updateMetrics(data as MetricsEvent);
   });
 
-  sse.on("target", (data) => {
-    ui.updateTarget(data as TargetEvent | null);
+  sse.on("phase", (data) => {
+    const event = data as PhaseEvent;
+    const plan = getPlan();
+
+    // Update timeline with phase timing info
+    if (timeline.hasPlan()) {
+      timeline.updatePhase({
+        phaseIndex: event.phaseIndex,
+        ends_at: event.ends_at,
+        server_now: event.server_now,
+      });
+    }
+
+    // Derive cadence + position from plan and update UI
+    ui.handlePhase(event.phaseIndex, plan);
   });
 
   sse.on("plan", (data) => {
