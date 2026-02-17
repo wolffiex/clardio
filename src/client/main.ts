@@ -61,6 +61,8 @@ if (testMode) {
     }
     timerOffset += pe;
   }
+  // Set workout start time in the past to simulate elapsed time
+  timeline.setWorkoutStartedAt(Date.now() - timerOffset * 1000);
   ui.startTimer(timerOffset);
 
   const message = params.get("message");
@@ -92,21 +94,20 @@ if (testMode) {
     };
     handlePlan(samplePlan);
 
-    // Simulate server timestamps for a PhaseEvent
+    // Compute phase timing in workout-elapsed seconds
     const currentPhase = samplePlan.phases[phaseIndex];
     const isRecoveryPhase = currentPhase?.type === "recovery";
     const phaseDuration = currentPhase
       ? (isRecoveryPhase ? null : (currentPhase.duration_s ?? 60))
       : 60;
 
-    const now = Date.now();
-    // ends_at: server timestamp when phase ends (null for recovery)
-    const endsAt = phaseDuration !== null ? now + (phaseDuration - phaseElapsed) * 1000 : null;
+    // ends_at: workout elapsed seconds when phase ends (null for recovery)
+    // timerOffset is the total workout elapsed time, phaseElapsed is how far into this phase
+    const endsAt = phaseDuration !== null ? timerOffset + (phaseDuration - phaseElapsed) : null;
 
     timeline.updatePhase({
       phaseIndex,
       ends_at: endsAt,
-      server_now: now,
     });
 
     // Derive cadence target from plan phase
@@ -153,6 +154,7 @@ if (testMode) {
     console.log("[App] SSE connected event received");
     ui.setConnectionStatus("connected");
     ui.startTimer();
+    timeline.setWorkoutStartedAt(Date.now());
   });
 
   sse.on("coach", (data) => {
@@ -172,7 +174,6 @@ if (testMode) {
       timeline.updatePhase({
         phaseIndex: event.phaseIndex,
         ends_at: event.ends_at,
-        server_now: event.server_now,
       });
     }
 

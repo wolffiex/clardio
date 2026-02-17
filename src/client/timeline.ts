@@ -22,8 +22,7 @@ export interface PlanPhase {
 
 export interface PhaseUpdateInfo {
   phaseIndex: number;
-  ends_at: number | null;  // server timestamp (ms) when phase ends, null for recovery
-  server_now: number;       // server Date.now() for clock sync
+  ends_at: number | null;  // workout elapsed SECONDS when phase ends, null for recovery
 }
 
 // ---------------------------------------------------------------------------
@@ -83,13 +82,12 @@ export class TimelineController {
   private phases: PlanPhase[] = [];
   private currentPhaseIndex: number = -1;
 
-  // Phase timing derived from ends_at
-  private endsAt: number | null = null;         // server timestamp (ms) when current phase ends
+  // Phase timing in workout-elapsed seconds
+  private endsAt: number | null = null;         // workout elapsed seconds when current phase ends
   private previousEndsAt: number | null = null;  // previous phase's ends_at, used to derive current phase start
-  private currentPhaseStart: number = 0;         // client timestamp when current phase started
 
-  // Clock sync state
-  private clockOffset: number = 0;              // client Date.now() - server Date.now()
+  // Workout start time (client's local clock)
+  private workoutStartedAt: number = 0;
 
   // Client-side countdown timer state
   private timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -106,6 +104,7 @@ export class TimelineController {
     this.phases = phases;
     this.currentPhaseIndex = -1;
     this.previousEndsAt = null;
+    this.endsAt = null;
     this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
@@ -113,18 +112,10 @@ export class TimelineController {
 
   /**
    * Update current phase state and re-render.
-   * Accepts the new PhaseEvent shape: { phaseIndex, ends_at, server_now }
+   * Accepts { phaseIndex, ends_at } where ends_at is in workout-elapsed seconds.
    */
   updatePhase(info: PhaseUpdateInfo): void {
-    // Clock sync
-    this.clockOffset = Date.now() - info.server_now;
-
-    // Derive phase start from previous phase's ends_at
-    this.currentPhaseStart = this.previousEndsAt !== null
-      ? this.previousEndsAt + this.clockOffset
-      : Date.now();
-
-    // Store ends_at for countdown and for next phase's start derivation
+    // Store ends_at (workout-elapsed seconds) for countdown and for next phase's start derivation
     this.endsAt = info.ends_at;
     this.previousEndsAt = info.ends_at;
 
@@ -135,10 +126,19 @@ export class TimelineController {
   }
 
   /**
-   * Get clock offset (client - server) for use by coach message scheduler
+   * Record the local timestamp when the workout started.
+   * Called once when the "connected" event fires.
    */
-  getClockOffset(): number {
-    return this.clockOffset;
+  setWorkoutStartedAt(ts: number): void {
+    this.workoutStartedAt = ts;
+  }
+
+  /**
+   * Get workout elapsed time in seconds, computed from the client's local clock.
+   */
+  getWorkoutElapsed(): number {
+    if (this.workoutStartedAt === 0) return 0;
+    return (Date.now() - this.workoutStartedAt) / 1000;
   }
 
   /**
@@ -178,18 +178,20 @@ export class TimelineController {
 
   /**
    * Get the current countdown (timed phases) or elapsed (recovery) in seconds,
-   * computed from server timestamps with clock offset correction.
+   * computed from workout-elapsed seconds.
    */
   private getClientSeconds(): { elapsed: number; remaining: number | null } {
+    const workoutElapsed = this.getWorkoutElapsed();
+
     if (this.endsAt === null) {
       // Recovery phase (no end time): count up from phase start
-      const elapsed = (Date.now() - this.currentPhaseStart) / 1000;
+      const phaseStart = this.computePhaseStart();
+      const elapsed = workoutElapsed - phaseStart;
       return { elapsed: Math.max(0, elapsed), remaining: null };
     }
 
-    // Timed phase: compute from ends_at
-    const clientEndsAt = this.endsAt + this.clockOffset;
-    const remaining = (clientEndsAt - Date.now()) / 1000;
+    // Timed phase: compute from ends_at (workout-elapsed seconds)
+    const remaining = this.endsAt - workoutElapsed;
 
     // Derive phase duration from the plan phase
     const phase = this.phases[this.currentPhaseIndex];
@@ -197,6 +199,25 @@ export class TimelineController {
     const elapsed = phaseDuration - Math.max(0, remaining);
 
     return { elapsed: Math.max(0, elapsed), remaining: Math.max(0, remaining) };
+  }
+
+  /**
+   * Compute the workout-elapsed seconds when the current phase started,
+   * derived from ends_at minus phase duration for timed phases,
+   * or from the sum of all previous phase durations as a fallback.
+   */
+  private computePhaseStart(): number {
+    if (this.endsAt !== null) {
+      const phase = this.phases[this.currentPhaseIndex];
+      const phaseDuration = phase ? getPhaseDuration(phase) : 60;
+      return this.endsAt - phaseDuration;
+    }
+    // For recovery phases (endsAt is null), sum previous phase durations
+    let start = 0;
+    for (let i = 0; i < this.currentPhaseIndex; i++) {
+      start += getPhaseDuration(this.phases[i]);
+    }
+    return start;
   }
 
   // -------------------------------------------------------------------------

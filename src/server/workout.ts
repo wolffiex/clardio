@@ -229,8 +229,7 @@ export async function startWorkout(): Promise<void> {
       const firstPhase = currentPlan.phases[0];
       broadcast("phase", {
         phaseIndex: 0,
-        ends_at: isRecoveryPhase(firstPhase) ? null : workoutStartTime + firstPhase.duration_s * 1000,
-        server_now: Date.now(),
+        ends_at: isRecoveryPhase(firstPhase) ? null : firstPhase.duration_s,
       });
     }
 
@@ -238,7 +237,8 @@ export async function startWorkout(): Promise<void> {
     coachingPrompt = buildCoachingSystemPrompt();
 
     // 5. Send initial coach message
-    const initialDisplayAt = Date.now() + 5000;
+    const workoutElapsed = (Date.now() - workoutStartTime) / 1000;
+    const initialDisplayAt = workoutElapsed + 5;
     const initialMessage = buildUserMessage(true, initialDisplayAt);
     console.log("--- Coach Input ---");
     console.log(initialMessage);
@@ -363,16 +363,18 @@ export function getElapsed(): number {
 async function onCoachTick(): Promise<void> {
   if (!workoutActive || !currentPlan || samples.length === 0) return;
 
-  // Compute displayAt: the absolute timestamp when this response will be shown.
+  // Compute displayAt: workout-elapsed seconds when this response will be shown.
   // Accounts for expected API latency so the coach's phase timing matches
   // what the rider sees on screen.
-  let displayAt = Date.now() + 5000;
+  const workoutElapsed = (Date.now() - workoutStartTime) / 1000;
+  let aheadSeconds = 5;
   if (tickLatencies.length > 0) {
     const recentLatencies = tickLatencies.slice(-5);
     const avgLatencyMs =
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
-    displayAt = Date.now() + Math.max(avgLatencyMs + 3000, 5000);
+    aheadSeconds = Math.max((avgLatencyMs + 3000) / 1000, 5);
   }
+  const displayAt = workoutElapsed + aheadSeconds;
 
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
@@ -418,7 +420,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
   // Pre-compute phase info, projected forward so the coach sees timing that
   // accounts for API response delay (presented as fact, no mention of
   // latency or projection to the model).
-  const projectionMs = displayAt - Date.now();
+  const projectionMs = (displayAt - (Date.now() - workoutStartTime) / 1000) * 1000;
   let phaseInfo: { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number } =
     { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
   if (currentPlan) {
@@ -853,11 +855,10 @@ function advancePhaseIfNeeded(): void {
 
     // Broadcast phase event so client timeline updates immediately
     const newPhase = currentPlan.phases[currentPhaseIndex];
-    const phaseStart = phaseStartTimes[currentPhaseIndex];
+    const phaseStartWorkoutSeconds = (phaseStartTimes[currentPhaseIndex] - workoutStartTime) / 1000;
     broadcast("phase", {
       phaseIndex: currentPhaseIndex,
-      ends_at: isRecoveryPhase(newPhase) ? null : phaseStart + newPhase.duration_s * 1000,
-      server_now: Date.now(),
+      ends_at: isRecoveryPhase(newPhase) ? null : phaseStartWorkoutSeconds + newPhase.duration_s,
     });
   }
 }

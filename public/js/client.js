@@ -191,9 +191,7 @@ class UIController {
     const tl = getTimeline();
     if (!tl)
       return;
-    const clockOffset = tl.getClockOffset();
-    const localDisplayAt = this.pendingCoach.displayAt + clockOffset;
-    if (Date.now() >= localDisplayAt) {
+    if (tl.getWorkoutElapsed() >= this.pendingCoach.displayAt) {
       this.elements.coachMessage.textContent = this.pendingCoach.message;
       this.targetPower = this.pendingCoach.power;
       this.render();
@@ -313,8 +311,7 @@ class TimelineController {
   currentPhaseIndex = -1;
   endsAt = null;
   previousEndsAt = null;
-  currentPhaseStart = 0;
-  clockOffset = 0;
+  workoutStartedAt = 0;
   timerInterval = null;
   tickCallback = null;
   constructor() {
@@ -324,21 +321,25 @@ class TimelineController {
     this.phases = phases;
     this.currentPhaseIndex = -1;
     this.previousEndsAt = null;
+    this.endsAt = null;
     this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
   }
   updatePhase(info) {
-    this.clockOffset = Date.now() - info.server_now;
-    this.currentPhaseStart = this.previousEndsAt !== null ? this.previousEndsAt + this.clockOffset : Date.now();
     this.endsAt = info.ends_at;
     this.previousEndsAt = info.ends_at;
     this.currentPhaseIndex = info.phaseIndex;
     this.startTimer();
     this.render();
   }
-  getClockOffset() {
-    return this.clockOffset;
+  setWorkoutStartedAt(ts) {
+    this.workoutStartedAt = ts;
+  }
+  getWorkoutElapsed() {
+    if (this.workoutStartedAt === 0)
+      return 0;
+    return (Date.now() - this.workoutStartedAt) / 1000;
   }
   onTick(callback) {
     this.tickCallback = callback;
@@ -362,16 +363,29 @@ class TimelineController {
       this.tickCallback();
   }
   getClientSeconds() {
+    const workoutElapsed = this.getWorkoutElapsed();
     if (this.endsAt === null) {
-      const elapsed2 = (Date.now() - this.currentPhaseStart) / 1000;
+      const phaseStart = this.computePhaseStart();
+      const elapsed2 = workoutElapsed - phaseStart;
       return { elapsed: Math.max(0, elapsed2), remaining: null };
     }
-    const clientEndsAt = this.endsAt + this.clockOffset;
-    const remaining = (clientEndsAt - Date.now()) / 1000;
+    const remaining = this.endsAt - workoutElapsed;
     const phase = this.phases[this.currentPhaseIndex];
     const phaseDuration = phase ? getPhaseDuration(phase) : 60;
     const elapsed = phaseDuration - Math.max(0, remaining);
     return { elapsed: Math.max(0, elapsed), remaining: Math.max(0, remaining) };
+  }
+  computePhaseStart() {
+    if (this.endsAt !== null) {
+      const phase = this.phases[this.currentPhaseIndex];
+      const phaseDuration = phase ? getPhaseDuration(phase) : 60;
+      return this.endsAt - phaseDuration;
+    }
+    let start = 0;
+    for (let i = 0;i < this.currentPhaseIndex; i++) {
+      start += getPhaseDuration(this.phases[i]);
+    }
+    return start;
   }
   render() {
     if (this.phases.length === 0)
@@ -507,6 +521,7 @@ if (testMode) {
     }
     timerOffset += pe;
   }
+  timeline2.setWorkoutStartedAt(Date.now() - timerOffset * 1000);
   ui.startTimer(timerOffset);
   const message = params.get("message");
   if (message) {
@@ -535,12 +550,10 @@ if (testMode) {
     const currentPhase = samplePlan.phases[phaseIndex];
     const isRecoveryPhase = currentPhase?.type === "recovery";
     const phaseDuration = currentPhase ? isRecoveryPhase ? null : currentPhase.duration_s ?? 60 : 60;
-    const now = Date.now();
-    const endsAt = phaseDuration !== null ? now + (phaseDuration - phaseElapsed) * 1000 : null;
+    const endsAt = phaseDuration !== null ? timerOffset + (phaseDuration - phaseElapsed) : null;
     timeline2.updatePhase({
       phaseIndex,
-      ends_at: endsAt,
-      server_now: now
+      ends_at: endsAt
     });
     ui.handlePhase(phaseIndex, samplePlan);
   }
@@ -574,6 +587,7 @@ if (testMode) {
     console.log("[App] SSE connected event received");
     ui.setConnectionStatus("connected");
     ui.startTimer();
+    timeline2.setWorkoutStartedAt(Date.now());
   });
   sse.on("coach", (data) => {
     ui.setPendingCoach(data);
@@ -587,8 +601,7 @@ if (testMode) {
     if (timeline2.hasPlan()) {
       timeline2.updatePhase({
         phaseIndex: event.phaseIndex,
-        ends_at: event.ends_at,
-        server_now: event.server_now
+        ends_at: event.ends_at
       });
     }
     ui.handlePhase(event.phaseIndex, plan);

@@ -102,9 +102,7 @@ export class UIController {
     if (!this.pendingCoach) return;
     const tl = getTimeline();
     if (!tl) return;
-    const clockOffset = tl.getClockOffset();
-    const localDisplayAt = this.pendingCoach.displayAt + clockOffset;
-    if (Date.now() >= localDisplayAt) {
+    if (tl.getWorkoutElapsed() >= this.pendingCoach.displayAt) {
       this.elements.coachMessage.textContent = this.pendingCoach.message;
       this.targetPower = this.pendingCoach.power;
       this.render();
