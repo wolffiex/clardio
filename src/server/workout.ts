@@ -239,7 +239,8 @@ export async function startWorkout(): Promise<void> {
 
     // 5. Send initial coach message
     const initialTickStart = Date.now();
-    const initialMessage = buildUserMessage(true);
+    const initialProjectionMs = 5000;
+    const initialMessage = buildUserMessage(true, initialProjectionMs);
     console.log("--- Coach Input ---");
     console.log(initialMessage);
     console.log("--- End Coach Input ---");
@@ -249,7 +250,7 @@ export async function startWorkout(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response, initialTickStart);
+      handleCoachResponse(response, initialTickStart, initialProjectionMs);
     }
 
     // 5.5 Save initial coach tick (skip in replay mode)
@@ -365,10 +366,20 @@ async function onCoachTick(): Promise<void> {
 
   const tickStartTime = Date.now();
 
+  // Compute projectionMs once per tick so the coach's view of phase timing
+  // and the displayAt timestamp use the exact same value.
+  let projectionMs = 5000;
+  if (tickLatencies.length > 0) {
+    const recentLatencies = tickLatencies.slice(-5);
+    const avgLatencyMs =
+      recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
+    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
+  }
+
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
 
-  const userMessage = buildUserMessage(false);
+  const userMessage = buildUserMessage(false, projectionMs);
   console.log("--- Coach Input ---");
   console.log(userMessage);
   console.log("--- End Coach Input ---");
@@ -380,7 +391,7 @@ async function onCoachTick(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response, tickStartTime);
+      handleCoachResponse(response, tickStartTime, projectionMs);
     }
 
     // Save coach tick to DB (skip in replay mode)
@@ -402,20 +413,9 @@ async function onCoachTick(): Promise<void> {
 // User message builder (what the coach sees each tick)
 // ---------------------------------------------------------------------------
 
-function buildUserMessage(isStart: boolean): string {
+function buildUserMessage(isStart: boolean, projectionMs: number): string {
   const elapsed = getElapsedMs();
   const sections: string[] = [];
-
-  // Compute projection: the coach sees phase timing projected forward by this
-  // amount so its advice matches the moment the client displays it.
-  // Same projectionMs is used for displayAt on the coach event.
-  let projectionMs = 5000;
-  if (!isStart && tickLatencies.length > 0) {
-    const recentLatencies = tickLatencies.slice(-5);
-    const avgLatencyMs =
-      recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
-    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
-  }
 
   // Pre-compute phase info, projected forward so the coach sees timing that
   // accounts for API response delay (presented as fact, no mention of
@@ -891,7 +891,7 @@ function getLatestHr(): number | null {
 /**
  * Handle a coach response: apply power throttling, broadcast coach event with displayAt
  */
-function handleCoachResponse(response: CoachResponse, tickStartTime: number): void {
+function handleCoachResponse(response: CoachResponse, tickStartTime: number, projectionMs: number): void {
   const now = Date.now();
 
   // Apply power throttling: only change power if 30s have passed since last change
@@ -907,16 +907,6 @@ function handleCoachResponse(response: CoachResponse, tickStartTime: number): vo
   }
 
   updateCoachHistory(response);
-
-  // Compute displayAt: the moment the client should display this message.
-  // Uses the same projection as the phase timing the coach was shown.
-  let projectionMs = 5000;
-  if (tickLatencies.length > 0) {
-    const recentLatencies = tickLatencies.slice(-5);
-    const avgLatencyMs =
-      recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
-    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
-  }
 
   broadcast("coach", {
     message: response.message,
