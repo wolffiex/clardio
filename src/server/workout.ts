@@ -238,9 +238,8 @@ export async function startWorkout(): Promise<void> {
     coachingPrompt = buildCoachingSystemPrompt();
 
     // 5. Send initial coach message
-    const initialTickStart = Date.now();
-    const initialProjectionMs = 5000;
-    const initialMessage = buildUserMessage(true, initialProjectionMs);
+    const initialDisplayAt = Date.now() + 5000;
+    const initialMessage = buildUserMessage(true, initialDisplayAt);
     console.log("--- Coach Input ---");
     console.log(initialMessage);
     console.log("--- End Coach Input ---");
@@ -250,7 +249,7 @@ export async function startWorkout(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response, initialTickStart, initialProjectionMs);
+      handleCoachResponse(response, initialDisplayAt);
     }
 
     // 5.5 Save initial coach tick (skip in replay mode)
@@ -364,22 +363,21 @@ export function getElapsed(): number {
 async function onCoachTick(): Promise<void> {
   if (!workoutActive || !currentPlan || samples.length === 0) return;
 
-  const tickStartTime = Date.now();
-
-  // Compute projectionMs once per tick so the coach's view of phase timing
-  // and the displayAt timestamp use the exact same value.
-  let projectionMs = 5000;
+  // Compute displayAt: the absolute timestamp when this response will be shown.
+  // Accounts for expected API latency so the coach's phase timing matches
+  // what the rider sees on screen.
+  let displayAt = Date.now() + 5000;
   if (tickLatencies.length > 0) {
     const recentLatencies = tickLatencies.slice(-5);
     const avgLatencyMs =
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
-    projectionMs = Math.max(avgLatencyMs + 3000, 5000);
+    displayAt = Date.now() + Math.max(avgLatencyMs + 3000, 5000);
   }
 
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
 
-  const userMessage = buildUserMessage(false, projectionMs);
+  const userMessage = buildUserMessage(false, displayAt);
   console.log("--- Coach Input ---");
   console.log(userMessage);
   console.log("--- End Coach Input ---");
@@ -391,7 +389,7 @@ async function onCoachTick(): Promise<void> {
     tickLatencies.push(lastLatencyMs);
     console.log(`Coach response in ${lastLatencyMs}ms`);
     if (response) {
-      handleCoachResponse(response, tickStartTime, projectionMs);
+      handleCoachResponse(response, displayAt);
     }
 
     // Save coach tick to DB (skip in replay mode)
@@ -413,13 +411,14 @@ async function onCoachTick(): Promise<void> {
 // User message builder (what the coach sees each tick)
 // ---------------------------------------------------------------------------
 
-function buildUserMessage(isStart: boolean, projectionMs: number): string {
+function buildUserMessage(isStart: boolean, displayAt: number): string {
   const elapsed = getElapsedMs();
   const sections: string[] = [];
 
   // Pre-compute phase info, projected forward so the coach sees timing that
   // accounts for API response delay (presented as fact, no mention of
   // latency or projection to the model).
+  const projectionMs = displayAt - Date.now();
   let phaseInfo: { currentPhase: Phase | null; phaseElapsed: number; phaseRemaining: number } =
     { currentPhase: null, phaseElapsed: 0, phaseRemaining: 0 };
   if (currentPlan) {
@@ -891,7 +890,7 @@ function getLatestHr(): number | null {
 /**
  * Handle a coach response: apply power throttling, broadcast coach event with displayAt
  */
-function handleCoachResponse(response: CoachResponse, tickStartTime: number, projectionMs: number): void {
+function handleCoachResponse(response: CoachResponse, displayAt: number): void {
   const now = Date.now();
 
   // Apply power throttling: only change power if 30s have passed since last change
@@ -911,7 +910,7 @@ function handleCoachResponse(response: CoachResponse, tickStartTime: number, pro
   broadcast("coach", {
     message: response.message,
     power: effectivePower ?? 0,
-    displayAt: tickStartTime + projectionMs,
+    displayAt: displayAt,
   });
 
   log(
