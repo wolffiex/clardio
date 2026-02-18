@@ -849,7 +849,15 @@ function advancePhaseIfNeeded(): void {
 
   if (shouldAdvance && currentPhaseIndex < currentPlan.phases.length - 1) {
     currentPhaseIndex++;
-    phaseStartTimes[currentPhaseIndex] = Date.now();
+    const prevPhase = currentPlan.phases[currentPhaseIndex - 1];
+    if (isRecoveryPhase(prevPhase)) {
+      // Recovery has no fixed duration — use actual time
+      phaseStartTimes[currentPhaseIndex] = Date.now();
+    } else {
+      // Timed phase: chain from planned end of previous phase
+      const prevPhaseStart = phaseStartTimes[currentPhaseIndex - 1] ?? workoutStartTime;
+      phaseStartTimes[currentPhaseIndex] = prevPhaseStart + prevPhase.duration_s * 1000;
+    }
     recoveryGateClearedAt = null;
     log(`Phase advanced to: ${currentPlan.phases[currentPhaseIndex].name}`);
 
