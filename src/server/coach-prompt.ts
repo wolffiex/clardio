@@ -74,7 +74,7 @@ export const planSchema = {
               name: { type: "string" },
               zone: { type: "string", description: "e.g. Z1, Z2, Z4, Sweet Spot" },
               duration_s: { type: "number", description: "Duration in seconds, minimum 60" },
-              cadence: { type: "number", description: "Target cadence in RPM" },
+              cadence: { type: "number", description: "Target cadence in RPM (55-110). Low cadence + standing = strength; high cadence + seated = speed." },
               position: { type: "string", description: "seated or standing" },
               hr_target: { type: "string", description: "Informational HR range, e.g. '128-134'" },
               form_cues: {
@@ -94,7 +94,7 @@ export const planSchema = {
               type: { type: "string", const: "recovery", description: "Must be 'recovery'" },
               target_hr: { type: "number", description: "Advance when HR drops below this" },
               max_duration_s: { type: "number", description: "Maximum duration cap in seconds" },
-              cadence: { type: "number", description: "Target cadence in RPM" },
+              cadence: { type: "number", description: "Target cadence in RPM (55-110). Recovery is typically 80 RPM." },
               position: { type: "string", description: "Usually 'seated'" },
             },
             required: ["name", "type", "target_hr", "max_duration_s", "cadence", "position"],
@@ -1222,12 +1222,26 @@ End the workout with a recovery phase for cooling down. Set the target_hr low en
 | Tempo Blocks | 15-20 min @ Z3 HR | 5 min | 2-3 | Gray zone -- use sparingly |
 
 ### Cadence Targets
-Set a single target cadence per phase (not a range). Guidelines:
-- Endurance: ~80 RPM
-- Threshold: ~90 RPM
-- High-cadence drills: ~100 RPM
-- Climbing: ~65 RPM
-- Standing: ~70 RPM
+Set a single target cadence per phase (not a range). Use the full 55-110 RPM range across the workout for variety. Different phases should use different cadences — do not default to 80-90 for everything.
+
+Cadence, stance, and effort are linked:
+- Low cadence + standing = high muscular force, heavy resistance (strength work)
+- High cadence + seated = cardiovascular effort, light resistance (speed work)
+
+| RPM | Stance | Effort | Use For |
+|-----|--------|--------|---------|
+| 55 | Standing | Heavy climbing, max resistance | Strength surges, standing climbs (1-2 min) |
+| 65 | Seated or standing | Seated climbing, moderate resistance | Climbing intervals, low-cadence strength |
+| 75 | Seated | Moderate resistance, controlled | Tempo climbing, over-under work |
+| 80 | Seated | Standard baseline | Endurance, warmup, recovery |
+| 85 | Seated | Comfortable efficiency | Steady-state endurance, sweet spot |
+| 90 | Seated | Threshold efficiency | Threshold intervals, sustained efforts |
+| 95 | Seated | Fast spinning, lighter resistance | Speed work, cadence building |
+| 100 | Seated | High cadence drill, light resistance | Leg speed drills, neuromuscular work |
+| 105 | Seated | Very fast, very light resistance | High-cadence intervals |
+| 110 | Seated | Sprint cadence, minimal resistance | Sprint efforts, peak leg speed |
+
+Mix cadences across the workout. A single session might include 65 RPM seated climbs, 85 RPM sweet spot blocks, and 100 RPM speed drills. Standing phases should use lower cadences (55-70). Seated phases can span the full range.
 
 ## Position Variety
 
