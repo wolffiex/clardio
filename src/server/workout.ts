@@ -238,7 +238,7 @@ export async function startWorkout(): Promise<void> {
 
     // 5. Send initial coach message
     const workoutElapsed = (Date.now() - workoutStartTime) / 1000;
-    const initialDisplayAt = workoutElapsed + 5;
+    const initialDisplayAt = Math.round(workoutElapsed + 5);
     const initialMessage = buildUserMessage(true, initialDisplayAt);
     console.log("--- Coach Input ---");
     console.log(initialMessage);
@@ -374,7 +374,7 @@ async function onCoachTick(): Promise<void> {
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
     aheadSeconds = Math.max((avgLatencyMs + 3000) / 1000, 5);
   }
-  const displayAt = workoutElapsed + aheadSeconds;
+  const displayAt = Math.round(workoutElapsed + aheadSeconds);
 
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
