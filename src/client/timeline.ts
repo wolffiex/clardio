@@ -85,6 +85,7 @@ export class TimelineController {
   // Phase timing in workout-elapsed seconds
   private endsAt: number | null = null;         // workout elapsed seconds when current phase ends
   private previousEndsAt: number | null = null;  // previous phase's ends_at, used to derive current phase start
+  private currentPhaseStart: number = 0;         // workout elapsed seconds when current phase started
 
   // Workout start time (client's local clock)
   private workoutStartedAt: number = 0;
@@ -105,6 +106,7 @@ export class TimelineController {
     this.currentPhaseIndex = -1;
     this.previousEndsAt = null;
     this.endsAt = null;
+    this.currentPhaseStart = 0;
     this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
@@ -117,7 +119,26 @@ export class TimelineController {
   updatePhase(info: PhaseUpdateInfo): void {
     // Store ends_at (workout-elapsed seconds) for countdown and for next phase's start derivation
     this.endsAt = info.ends_at;
-    this.previousEndsAt = info.ends_at;
+
+    // Derive phase start from the best available source
+    const phase = this.phases[info.phaseIndex];
+    if (this.previousEndsAt !== null) {
+      // Normal case: chain from previous phase end
+      this.currentPhaseStart = this.previousEndsAt;
+    } else if (info.ends_at !== null && phase) {
+      // Post-recovery timed phase: derive from ends_at minus plan duration
+      this.currentPhaseStart = info.ends_at - (phase.duration_s ?? 0);
+    } else {
+      // Recovery after recovery (unlikely) or no data: use client clock
+      this.currentPhaseStart = this.getWorkoutElapsed();
+    }
+
+    // Only update previousEndsAt when we have a real value (don't overwrite with null from recovery)
+    if (info.ends_at !== null) {
+      this.previousEndsAt = info.ends_at;
+    } else {
+      this.previousEndsAt = null;
+    }
 
     this.currentPhaseIndex = info.phaseIndex;
 
@@ -202,22 +223,11 @@ export class TimelineController {
   }
 
   /**
-   * Compute the workout-elapsed seconds when the current phase started,
-   * derived from ends_at minus phase duration for timed phases,
-   * or from the sum of all previous phase durations as a fallback.
+   * Return the workout-elapsed seconds when the current phase started.
+   * This is computed once in updatePhase() and stored.
    */
   private computePhaseStart(): number {
-    if (this.endsAt !== null) {
-      const phase = this.phases[this.currentPhaseIndex];
-      const phaseDuration = phase ? getPhaseDuration(phase) : 60;
-      return this.endsAt - phaseDuration;
-    }
-    // For recovery phases (endsAt is null), sum previous phase durations
-    let start = 0;
-    for (let i = 0; i < this.currentPhaseIndex; i++) {
-      start += getPhaseDuration(this.phases[i]);
-    }
-    return start;
+    return this.currentPhaseStart;
   }
 
   // -------------------------------------------------------------------------

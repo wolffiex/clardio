@@ -311,6 +311,7 @@ class TimelineController {
   currentPhaseIndex = -1;
   endsAt = null;
   previousEndsAt = null;
+  currentPhaseStart = 0;
   workoutStartedAt = 0;
   timerInterval = null;
   tickCallback = null;
@@ -322,13 +323,26 @@ class TimelineController {
     this.currentPhaseIndex = -1;
     this.previousEndsAt = null;
     this.endsAt = null;
+    this.currentPhaseStart = 0;
     this.clearTimer();
     this.render();
     this.container.classList.remove("hidden");
   }
   updatePhase(info) {
     this.endsAt = info.ends_at;
-    this.previousEndsAt = info.ends_at;
+    const phase = this.phases[info.phaseIndex];
+    if (this.previousEndsAt !== null) {
+      this.currentPhaseStart = this.previousEndsAt;
+    } else if (info.ends_at !== null && phase) {
+      this.currentPhaseStart = info.ends_at - (phase.duration_s ?? 0);
+    } else {
+      this.currentPhaseStart = this.getWorkoutElapsed();
+    }
+    if (info.ends_at !== null) {
+      this.previousEndsAt = info.ends_at;
+    } else {
+      this.previousEndsAt = null;
+    }
     this.currentPhaseIndex = info.phaseIndex;
     this.startTimer();
     this.render();
@@ -376,16 +390,7 @@ class TimelineController {
     return { elapsed: Math.max(0, elapsed), remaining: Math.max(0, remaining) };
   }
   computePhaseStart() {
-    if (this.endsAt !== null) {
-      const phase = this.phases[this.currentPhaseIndex];
-      const phaseDuration = phase ? getPhaseDuration(phase) : 60;
-      return this.endsAt - phaseDuration;
-    }
-    let start = 0;
-    for (let i = 0;i < this.currentPhaseIndex; i++) {
-      start += getPhaseDuration(this.phases[i]);
-    }
-    return start;
+    return this.currentPhaseStart;
   }
   render() {
     if (this.phases.length === 0)
