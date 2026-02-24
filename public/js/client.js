@@ -285,8 +285,8 @@ function getZoneColor(phase) {
   return DEFAULT_COLOR;
 }
 function getPhaseDuration(phase) {
-  if (phase.type === "recovery" && phase.max_duration_s)
-    return phase.max_duration_s;
+  if (phase.type === "recovery")
+    return phase.max_duration_s ?? 600;
   return phase.duration_s ?? 60;
 }
 function formatDuration(seconds) {

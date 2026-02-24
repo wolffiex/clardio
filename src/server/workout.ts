@@ -29,6 +29,7 @@ import { loadReplayData, startReplay, stopReplay } from "./replay";
 import { replayPlanId, replaySpeed, isReplay } from "./replay-config";
 
 const COACH_INTERVAL_MS = 10_000;
+const RECOVERY_SAFETY_TIMEOUT_S = 600; // 10 minutes — system safety valve
 
 // Latency tracking
 let lastLatencyMs: number | null = null;
@@ -207,7 +208,7 @@ export async function startWorkout(): Promise<void> {
           return {
             name: phase.name,
             type: "recovery",
-            max_duration_s: phase.max_duration_s,
+            max_duration_s: phase.max_duration_s ?? RECOVERY_SAFETY_TIMEOUT_S,
             target_hr: phase.target_hr,
             position: phase.position,
             cadence: phase.cadence,
@@ -532,7 +533,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
           );
           sections.push(getPreviousPhaseDescription());
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
           if (positionChanged) {
@@ -546,7 +547,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
           }
         } else {
           sections.push(
-            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
+            `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
         }
@@ -799,7 +800,8 @@ function getCurrentPhaseInfo(elapsedMs: number): {
 
   if (isRecoveryPhase(phase)) {
     // For recovery phases, remaining is based on max_duration_s
-    const maxDurationMs = phase.max_duration_s * 1000;
+    const maxDurationS = phase.max_duration_s ?? RECOVERY_SAFETY_TIMEOUT_S;
+    const maxDurationMs = maxDurationS * 1000;
     const phaseRemaining = Math.max(0, maxDurationMs - phaseElapsed);
     return { currentPhase: phase, phaseElapsed, phaseRemaining };
   } else {
@@ -819,7 +821,8 @@ function advancePhaseIfNeeded(): void {
   let shouldAdvance = false;
 
   if (isRecoveryPhase(phase)) {
-    const maxElapsed = phaseElapsedMs >= phase.max_duration_s * 1000;
+    const maxDurationS = phase.max_duration_s ?? RECOVERY_SAFETY_TIMEOUT_S;
+    const maxElapsed = phaseElapsedMs >= maxDurationS * 1000;
     const recentAvgHr = getRecentAvgHr();
     const hrBelowTarget = recentAvgHr !== null && recentAvgHr < phase.target_hr;
 
@@ -902,7 +905,7 @@ function getPreviousPhaseDescription(): string {
 function getRecentAvgHr(): number | null {
   // Average HR from the last 15 seconds of samples
   const cutoff = Date.now() - 15_000;
-  const recent = samples.filter((s) => s.receivedAt >= cutoff && s.hr > 0);
+  const recent = samples.filter((s) => s.receivedAt >= cutoff && s.hr >= 40);
   if (recent.length === 0) return null;
   return Math.round(
     recent.reduce((sum, s) => sum + s.hr, 0) / recent.length

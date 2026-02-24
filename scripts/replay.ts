@@ -118,7 +118,7 @@ function listPlans(): void {
   for (const p of plans) {
     const phases: Phase[] = JSON.parse(p.phases);
     const totalPlanSec = phases.reduce((s, ph) => {
-      if (isRecoveryPhase(ph)) return s + ph.max_duration_s;
+      if (isRecoveryPhase(ph)) return s + (ph.max_duration_s ?? 600);
       // Handle legacy duration_minutes format
       if ("duration_minutes" in ph) return s + (ph as any).duration_minutes * 60;
       return s + ph.duration_s;
@@ -146,7 +146,7 @@ function listPlans(): void {
 // ---------------------------------------------------------------------------
 
 function getPhaseDurationS(phase: Phase): number {
-  if (isRecoveryPhase(phase)) return phase.max_duration_s;
+  if (isRecoveryPhase(phase)) return phase.max_duration_s ?? 600;
   // Handle legacy duration_minutes format
   if ("duration_minutes" in phase) return (phase as any).duration_minutes * 60;
   return phase.duration_s;
@@ -319,7 +319,7 @@ function buildReplayUserMessage(
   if (currentPhase) {
     if (isRecoveryPhase(currentPhase)) {
       sections.push(
-        `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
+        `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s`
       );
       sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
     } else {

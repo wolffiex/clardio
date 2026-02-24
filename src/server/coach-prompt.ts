@@ -29,7 +29,7 @@ export type RecoveryPhase = {
   name: string;
   type: "recovery";
   target_hr: number;
-  max_duration_s: number;
+  max_duration_s?: number;
   cadence: number;
   position: string;
 };
@@ -93,11 +93,10 @@ export const planSchema = {
               name: { type: "string" },
               type: { type: "string", const: "recovery", description: "Must be 'recovery'" },
               target_hr: { type: "number", description: "Advance when HR drops below this" },
-              max_duration_s: { type: "number", description: "Maximum duration cap in seconds" },
               cadence: { type: "number", description: "Target cadence in RPM (55-110). Recovery is typically 80 RPM." },
               position: { type: "string", description: "Usually 'seated'" },
             },
-            required: ["name", "type", "target_hr", "max_duration_s", "cadence", "position"],
+            required: ["name", "type", "target_hr", "cadence", "position"],
             additionalProperties: false,
           },
         ],
@@ -986,7 +985,7 @@ export function buildSessionTrendsSection(sessions: SessionSummary[]): string {
 
     for (const phase of planPhases) {
       const durationMs = isRecoveryPhase(phase)
-        ? phase.max_duration_s * 1000
+        ? (phase.max_duration_s ?? 600) * 1000
         : phase.duration_s * 1000;
       const zone = isRecoveryPhase(phase) ? "Z1" : phase.zone;
       timeZoneMap.push({
@@ -1180,7 +1179,7 @@ You design the STRUCTURE: phases, zones, cadence, position, form cues, HR target
 Fixed-duration phases with a target zone. Duration in seconds (minimum 60s).
 
 ### Recovery Phases
-HR-gated recovery between hard efforts. Recovery phases advance when HR drops below target_hr for 15 sustained seconds, or when max_duration is reached.
+HR-gated recovery between hard efforts. Recovery phases advance when HR drops below target_hr for 15 sustained seconds.
 
 Recovery phases should follow hard efforts. Set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery.
 
