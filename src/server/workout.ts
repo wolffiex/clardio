@@ -549,24 +549,6 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
             `Recovery -- target HR: ${currentPhase.target_hr}, elapsed: ${Math.round(phaseElapsed / 1000)}s, max: ${currentPhase.max_duration_s}s`
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
-
-          // HR proximity / gate state indicators for recovery phases
-          if (recentAvgHr !== null) {
-            const gap = recentAvgHr - currentPhase.target_hr;
-            if (recoveryGateClearedAt !== null) {
-              // HR is below target, debounce timer is running
-              const sustainedSec = Math.round((Date.now() - recoveryGateClearedAt) / 1000);
-              sections.push(`\u2713 HR below target (${sustainedSec}s of 15s sustained)`);
-            } else if (gap <= 0) {
-              // HR below target but debounce hasn't started yet
-              // (shouldn't normally happen since advancePhaseIfNeeded runs first)
-              sections.push(`\u2713 HR below target — gate pending`);
-            } else if (gap > 0 && gap <= 5) {
-              sections.push(`\u26A1 HR approaching target — next phase imminent`);
-            } else if (gap > 5 && gap <= 10) {
-              sections.push(`HR trending toward target`);
-            }
-          }
         }
       } else {
         // Timed phase display
@@ -892,6 +874,13 @@ function advancePhaseIfNeeded(): void {
       phaseIndex: currentPhaseIndex,
       ends_at: isRecoveryPhase(newPhase) ? null : phaseStartWorkoutSeconds + newPhase.duration_s,
     });
+  }
+
+  // Handle last phase completion
+  if (shouldAdvance && currentPhaseIndex >= currentPlan.phases.length - 1) {
+    log("Final phase completed — stopping workout");
+    stopWorkout();
+    return;
   }
 }
 
