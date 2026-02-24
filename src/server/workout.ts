@@ -528,7 +528,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
 
       if (isRecoveryPhase(currentPhase)) {
         // Recovery phase display
-        const latestHr = getLatestHr();
+        const recentAvgHr = getRecentAvgHr();
         if (isNewPhase) {
           const positionChanged = lastPhasePosition !== null && currentPhase.position !== lastPhasePosition;
           sections.push(
@@ -554,10 +554,18 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
           );
           sections.push(`${currentPhase.name} | recovery | ${currentPhase.position} | ${currentPhase.cadence}rpm`);
 
-          // HR proximity indicator for recovery phases
-          if (latestHr !== null) {
-            const gap = latestHr - currentPhase.target_hr;
-            if (gap > 0 && gap <= 5) {
+          // HR proximity / gate state indicators for recovery phases
+          if (recentAvgHr !== null) {
+            const gap = recentAvgHr - currentPhase.target_hr;
+            if (recoveryGateClearedAt !== null) {
+              // HR is below target, debounce timer is running
+              const sustainedSec = Math.round((Date.now() - recoveryGateClearedAt) / 1000);
+              sections.push(`\u2713 HR below target (${sustainedSec}s of 15s sustained)`);
+            } else if (gap <= 0) {
+              // HR below target but debounce hasn't started yet
+              // (shouldn't normally happen since advancePhaseIfNeeded runs first)
+              sections.push(`\u2713 HR below target — gate pending`);
+            } else if (gap > 0 && gap <= 5) {
               sections.push(`\u26A1 HR approaching target — next phase imminent`);
             } else if (gap > 5 && gap <= 10) {
               sections.push(`HR trending toward target`);
@@ -821,8 +829,8 @@ function advancePhaseIfNeeded(): void {
 
   if (isRecoveryPhase(phase)) {
     const maxElapsed = phaseElapsedMs >= phase.max_duration_s * 1000;
-    const latestHr = getLatestHr();
-    const hrBelowTarget = latestHr !== null && latestHr < phase.target_hr;
+    const recentAvgHr = getRecentAvgHr();
+    const hrBelowTarget = recentAvgHr !== null && recentAvgHr < phase.target_hr;
 
     if (maxElapsed) {
       shouldAdvance = true;
@@ -833,14 +841,14 @@ function advancePhaseIfNeeded(): void {
       const now = Date.now();
       if (recoveryGateClearedAt === null) {
         recoveryGateClearedAt = now;
-        log(`Recovery gate: HR ${latestHr} below target ${phase.target_hr}, waiting for 15s sustained`);
+        log(`Recovery gate: HR ${recentAvgHr} below target ${phase.target_hr}, waiting for 15s sustained`);
       } else if (now - recoveryGateClearedAt >= 15_000) {
         shouldAdvance = true;
-        log(`Recovery gate: sustained 15s, advancing (HR ${latestHr} <= target ${phase.target_hr})`);
+        log(`Recovery gate: sustained 15s, advancing (HR ${recentAvgHr} <= target ${phase.target_hr})`);
       }
     } else if (!hrBelowTarget && recoveryGateClearedAt !== null) {
       // HR went back above target, reset the sustained check
-      log(`Recovery gate: HR ${latestHr ?? "---"} back above target ${phase.target_hr}, resetting`);
+      log(`Recovery gate: HR ${recentAvgHr ?? "---"} back above target ${phase.target_hr}, resetting`);
       recoveryGateClearedAt = null;
     }
   } else {
@@ -894,8 +902,8 @@ function getPreviousPhaseDescription(): string {
   return `Transitioned from: ${prev.name} (${prev.zone}, ${Math.round(prev.duration_s / 60)}min)`;
 }
 
-function getLatestHr(): number | null {
-  // Get the most recent HR from last 15 seconds of samples
+function getRecentAvgHr(): number | null {
+  // Average HR from the last 15 seconds of samples
   const cutoff = Date.now() - 15_000;
   const recent = samples.filter((s) => s.receivedAt >= cutoff && s.hr > 0);
   if (recent.length === 0) return null;
