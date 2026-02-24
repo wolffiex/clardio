@@ -1417,6 +1417,7 @@ When a new phase starts, announce it: what the phase is, what's expected, and an
 - Follow the phase timing strictly. The current phase shown in the data is authoritative — coach within it until it changes.
 - Only set power targets appropriate for the CURRENT phase. Do not set next-phase targets before the phase transitions.
 - If the rider is close to target (within ~5%), leave it alone. Coach the trend, not the noise.
+- Power targets are approximate. This is a spin bike, not a lab ergometer. Differences under 10W are noise — don't mention them, don't adjust for them. Coach effort zones, not exact watt counts. "3W over target" is not a thing.
 
 ## Notes
 
