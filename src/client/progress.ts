@@ -1,8 +1,8 @@
 /**
  * Fixed scale ranges for meters
  */
-export const POWER_MIN = 50;
-export const POWER_MAX = 400;
+export const POWER_MIN = 0;
+export const POWER_MAX = 300;
 export const CADENCE_MIN = 45;
 export const CADENCE_MAX = 120;
 

@@ -68,44 +68,44 @@ describe("SSEClient event handling", () => {
 });
 
 describe("calculateFillPercent", () => {
-  // Using fixed scale: POWER_MIN=50, POWER_MAX=400
+  // Using fixed scale: POWER_MIN=0, POWER_MAX=300
   test("returns 0 when at or below min", () => {
-    expect(calculateFillPercent(50, POWER_MIN, POWER_MAX)).toBe(0);
-    expect(calculateFillPercent(30, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(0, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(-10, POWER_MIN, POWER_MAX)).toBe(0);
   });
 
   test("returns 100 when at or above max", () => {
-    expect(calculateFillPercent(400, POWER_MIN, POWER_MAX)).toBe(100);
+    expect(calculateFillPercent(300, POWER_MIN, POWER_MAX)).toBe(100);
     expect(calculateFillPercent(500, POWER_MIN, POWER_MAX)).toBe(100);
   });
 
   test("calculates percentage within range", () => {
-    // 225 is midpoint of 50-400 range (350/2 + 50 = 225)
-    expect(calculateFillPercent(225, POWER_MIN, POWER_MAX)).toBe(50);
+    // 150 is midpoint of 0-300 range
+    expect(calculateFillPercent(150, POWER_MIN, POWER_MAX)).toBe(50);
   });
 
   test("handles typical power values", () => {
-    // 150W in 50-400 range = (150-50)/(400-50) = 100/350 = ~28.57%
-    const result = calculateFillPercent(150, POWER_MIN, POWER_MAX);
-    expect(result).toBeCloseTo(28.57, 1);
+    // 100W in 0-300 range = 100/300 = ~33.33%
+    const result = calculateFillPercent(100, POWER_MIN, POWER_MAX);
+    expect(result).toBeCloseTo(33.33, 1);
   });
 });
 
 describe("calculateFillPercent for target position", () => {
   test("returns 0 when at or below min", () => {
-    expect(calculateFillPercent(50, POWER_MIN, POWER_MAX)).toBe(0);
-    expect(calculateFillPercent(30, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(0, POWER_MIN, POWER_MAX)).toBe(0);
+    expect(calculateFillPercent(-10, POWER_MIN, POWER_MAX)).toBe(0);
   });
 
   test("returns 100 when at or above max", () => {
-    expect(calculateFillPercent(400, POWER_MIN, POWER_MAX)).toBe(100);
+    expect(calculateFillPercent(300, POWER_MIN, POWER_MAX)).toBe(100);
     expect(calculateFillPercent(500, POWER_MIN, POWER_MAX)).toBe(100);
   });
 
   test("calculates position within range", () => {
-    // 180W target in 50-400 range = (180-50)/(400-50) = 130/350 = ~37.14%
+    // 180W target in 0-300 range = 180/300 = 60%
     const result = calculateFillPercent(180, POWER_MIN, POWER_MAX);
-    expect(result).toBeCloseTo(37.14, 1);
+    expect(result).toBeCloseTo(60, 1);
   });
 });
 

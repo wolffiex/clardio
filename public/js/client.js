@@ -82,8 +82,8 @@ function getPlan() {
 }
 
 // src/client/progress.ts
-var POWER_MIN = 50;
-var POWER_MAX = 400;
+var POWER_MIN = 0;
+var POWER_MAX = 300;
 var CADENCE_MIN = 45;
 var CADENCE_MAX = 120;
 function calculateFillPercent(value, min, max) {
