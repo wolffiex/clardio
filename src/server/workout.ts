@@ -746,7 +746,20 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
   }
 
   // =========================================================================
-  // 8. CURRENT TARGET — What was last set: power and cadence targets
+  // 8. WORKOUT STATS — Cumulative stats for the whole workout
+  // =========================================================================
+
+  if (!isStart && samples.length > 1) {
+    const stats = buildWorkoutStats();
+    if (stats) {
+      sections.push("");
+      sections.push("## Workout Stats");
+      sections.push(stats);
+    }
+  }
+
+  // =========================================================================
+  // 9. CURRENT TARGET — What was last set: power and cadence targets
   // =========================================================================
 
   // Current targets (power only, from most recent coach response)
@@ -759,7 +772,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
   }
 
   // =========================================================================
-  // 9. NOTE FROM PREVIOUS TICK — Baton pass: the coach's note to itself
+  // 10. NOTE FROM PREVIOUS TICK — Baton pass: the coach's note to itself
   // =========================================================================
 
   // Single note from previous tick (baton pass)
@@ -998,6 +1011,102 @@ function buildHrTrajectory(): string | null {
   }
 
   return `HR ${nowHr}${zoneLabel} — ${trend}`;
+}
+
+/**
+ * Build compact workout stats for the coach message.
+ * Summarizes total work, averages, peaks, phase progress, and time in HR zone.
+ */
+function buildWorkoutStats(): string | null {
+  if (samples.length < 2) return null;
+
+  const lines: string[] = [];
+
+  // Elapsed time
+  const elapsedMs = getElapsedMs();
+  const elapsedStr = formatElapsed(elapsedMs);
+
+  // Phases completed
+  const totalPhases = currentPlan ? currentPlan.phases.length : 0;
+  const phasesStr = totalPhases > 0 ? `${currentPhaseIndex + 1}/${totalPhases}` : "";
+
+  lines.push(
+    `Elapsed: ${elapsedStr}${phasesStr ? ` | Phases: ${phasesStr}` : ""}`
+  );
+
+  // Compute durations between consecutive samples
+  // Each sample's duration = gap since previous sample (first sample has 0 duration)
+  let totalWorkJ = 0;
+  let totalPowerDurationMs = 0;
+  let totalPowerSum = 0;
+  let totalHrDurationMs = 0;
+  let totalHrSum = 0;
+  let peakPower = 0;
+  let peakHr = 0;
+
+  // HR zone time tracking (in ms)
+  const zoneTimeMs: Record<string, number> = {
+    "Z1 Recovery": 0,
+    "Z2 Endurance": 0,
+    "Z3 Tempo": 0,
+    "Z4 Threshold": 0,
+    "Z5 VO2max": 0,
+  };
+
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    const durationMs = i > 0 ? s.receivedAt - samples[i - 1].receivedAt : 0;
+
+    if (s.power > 0) {
+      totalWorkJ += s.power * (durationMs / 1000);
+      totalPowerDurationMs += durationMs;
+      totalPowerSum += s.power * durationMs;
+      if (s.power > peakPower) peakPower = s.power;
+    }
+
+    if (s.hr > 0) {
+      totalHrDurationMs += durationMs;
+      totalHrSum += s.hr * durationMs;
+      if (s.hr > peakHr) peakHr = s.hr;
+
+      // Track time in zone
+      if (cachedHrZones && durationMs > 0) {
+        const zoneLabel = getHrZoneLabel(s.hr, cachedHrZones);
+        if (zoneLabel in zoneTimeMs) {
+          zoneTimeMs[zoneLabel] += durationMs;
+        }
+      }
+    }
+  }
+
+  const workKj = Math.round(totalWorkJ / 1000);
+  const avgPower = totalPowerDurationMs > 0
+    ? Math.round(totalPowerSum / totalPowerDurationMs)
+    : 0;
+  const avgHr = totalHrDurationMs > 0
+    ? Math.round(totalHrSum / totalHrDurationMs)
+    : 0;
+
+  lines.push(
+    `Work: ${workKj}kJ | Avg power: ${avgPower}W | Peak: ${peakPower}W`
+  );
+  lines.push(
+    `Avg HR: ${avgHr} | Peak HR: ${peakHr}`
+  );
+
+  // Time in zone
+  if (cachedHrZones) {
+    const zoneOrder = ["Z1 Recovery", "Z2 Endurance", "Z3 Tempo", "Z4 Threshold", "Z5 VO2max"];
+    const zoneParts: string[] = [];
+    for (const zone of zoneOrder) {
+      const ms = zoneTimeMs[zone] ?? 0;
+      const label = zone.split(" ")[0]; // "Z1", "Z2", etc.
+      zoneParts.push(`${label} ${formatElapsed(ms)}`);
+    }
+    lines.push(`Time in zone: ${zoneParts.join(" | ")}`);
+  }
+
+  return lines.join("\n");
 }
 
 function updateCoachHistory(response: CoachResponse): void {
