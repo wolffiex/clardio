@@ -64,8 +64,6 @@ let formCueIndex: number = 0;
 let currentPhaseIndex: number = 0;
 let phaseStartTimes: number[] = []; // ms timestamp when each phase started
 
-// Power change throttling
-let lastPowerChangeTime: number = 0;
 let currentPowerTarget: number | null = null;
 
 // Recovery HR gate debounce: tracks when HR first dropped below target
@@ -114,7 +112,6 @@ export async function startWorkout(): Promise<void> {
   formCueIndex = 0;
   currentPhaseIndex = 0;
   phaseStartTimes = [];
-  lastPowerChangeTime = 0;
   currentPowerTarget = null;
   recoveryGateClearedAt = null;
   previousCoachNote = null;
@@ -306,7 +303,6 @@ export function stopWorkout(): void {
   lastSampleTime = null;
   currentPhaseIndex = 0;
   phaseStartTimes = [];
-  lastPowerChangeTime = 0;
   currentPowerTarget = null;
   recoveryGateClearedAt = null;
   formCueIndex = 0;
@@ -875,7 +871,6 @@ function advancePhaseIfNeeded(): void {
     currentPhaseIndex++;
     // Clear stale state from old phase so coach starts fresh
     previousCoachNote = null;
-    lastPowerChangeTime = 0;
     currentPowerTarget = null;
     formCueIndex = 0;
     const prevPhase = currentPlan.phases[currentPhaseIndex - 1];
@@ -926,21 +921,14 @@ function getRecentAvgHr(): number | null {
 }
 
 /**
- * Handle a coach response: apply power throttling, broadcast coach event with displayAt
+ * Handle a coach response: broadcast coach event with displayAt
  */
 function handleCoachResponse(response: CoachResponse, displayAt: number): void {
-  const now = Date.now();
-
-  // Apply power throttling: only change power if 30s have passed since last change
+  // Apply coach's power target
   let effectivePower = currentPowerTarget;
   if (response.power !== null && response.power !== currentPowerTarget) {
-    if (now - lastPowerChangeTime >= 30_000 || currentPowerTarget === null) {
-      effectivePower = response.power;
-      currentPowerTarget = response.power;
-      lastPowerChangeTime = now;
-    } else {
-      log(`Power change throttled: coach wanted ${response.power}W, keeping ${currentPowerTarget}W`);
-    }
+    effectivePower = response.power;
+    currentPowerTarget = response.power;
   }
 
   updateCoachHistory(response);
