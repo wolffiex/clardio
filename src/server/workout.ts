@@ -55,6 +55,7 @@ const MAX_COACH_HISTORY = 10;
 // Phase transition tracking
 let lastPhaseName: string | null = null;
 let lastPhasePosition: string | null = null;
+let lastPhaseIndex: number = -1;
 
 // Form cue rotation: cycles through cues one per tick, resets on phase change
 let formCueIndex: number = 0;
@@ -109,6 +110,7 @@ export async function startWorkout(): Promise<void> {
   tickLatencies = [];
   lastPhaseName = null;
   lastPhasePosition = null;
+  lastPhaseIndex = -1;
   formCueIndex = 0;
   currentPhaseIndex = 0;
   phaseStartTimes = [];
@@ -427,7 +429,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
     const raw = getCurrentPhaseInfo(elapsed);
     phaseInfo = {
       currentPhase: raw.currentPhase,
-      phaseElapsed: raw.phaseElapsed + projectionMs,
+      phaseElapsed: Math.min(raw.phaseElapsed + projectionMs, raw.phaseElapsed + raw.phaseRemaining),
       phaseRemaining: Math.max(0, raw.phaseRemaining - projectionMs),
     };
   }
@@ -521,8 +523,8 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
     sections.push("");
     sections.push("## Current Phase (AUTHORITATIVE — do not override)");
     if (currentPhase) {
-      // Detect phase transition
-      const isNewPhase = lastPhaseName !== null && currentPhase.name !== lastPhaseName;
+      // Detect phase transition (by index, not name — handles repeated phase names)
+      const isNewPhase = lastPhaseIndex !== currentPhaseIndex;
 
       if (isRecoveryPhase(currentPhase)) {
         // Recovery phase display
@@ -621,7 +623,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
       const cues = isRecoveryPhase(currentPhase) ? undefined : currentPhase.form_cues;
       if (cues && cues.length > 0) {
         // Reset cue index on phase change
-        if (lastPhaseName !== null && currentPhase.name !== lastPhaseName) {
+        if (lastPhaseIndex !== currentPhaseIndex) {
           formCueIndex = 0;
         }
         // Show each cue exactly once; after all delivered, omit the cue line
@@ -636,6 +638,7 @@ function buildUserMessage(isStart: boolean, displayAt: number): string {
       // Update tracking state after building the message
       lastPhaseName = currentPhase.name;
       lastPhasePosition = currentPhase.position;
+      lastPhaseIndex = currentPhaseIndex;
     }
   }
 
@@ -849,6 +852,11 @@ function advancePhaseIfNeeded(): void {
 
   if (shouldAdvance && currentPhaseIndex < currentPlan.phases.length - 1) {
     currentPhaseIndex++;
+    // Clear stale state from old phase so coach starts fresh
+    previousCoachNote = null;
+    lastPowerChangeTime = 0;
+    currentPowerTarget = null;
+    formCueIndex = 0;
     const prevPhase = currentPlan.phases[currentPhaseIndex - 1];
     if (isRecoveryPhase(prevPhase)) {
       // Recovery has no fixed duration — use actual time
