@@ -1179,9 +1179,11 @@ You design the STRUCTURE: phases, zones, cadence, position, form cues, HR target
 Fixed-duration phases with a target zone. Duration in seconds (minimum 60s).
 
 ### Recovery Phases
-HR-gated recovery between hard efforts. Recovery phases advance when HR drops below target_hr for 15 sustained seconds.
+HR-gated recovery. Recovery phases advance when HR drops below target_hr for 15 sustained seconds.
 
-Recovery phases should follow hard efforts. Set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery.
+Use recovery phases sparingly -- at most one between major blocks in the main set, plus the final cooldown. Do NOT insert a recovery phase after every hard effort. Cadence and position changes within a sustained block provide muscular relief without dropping HR.
+
+When you do use a recovery phase, set target_hr based on the preceding effort -- typically 10-15 bpm below LTHR for short recovery, or below Z2 ceiling for full recovery.
 
 ## Polarized Training Principle
 
@@ -1202,6 +1204,22 @@ If the rider cannot hit hard targets, simplify. Drop to endurance pace with occa
 2. Build to Z2 (5-10 min)
 3. 1-2 minute opener efforts to prime the legs
 4. Brief recovery before main set
+
+### Main Set Structure
+Structure the main set as 1-2 long sustained blocks (12-20 minutes each). Within each block, vary cadence and position across phases to provide muscular relief without dropping intensity. Position and cadence changes ARE the recovery.
+
+Do not break the main set into many short intervals with recovery gates between them. The rider can sustain 15-20 minutes of continuous varied effort.
+
+Example -- a 20-minute sustained climbing block:
+- 4 min seated grind at 70 RPM (Z4)
+- 2 min standing climb at 60 RPM (Z4)
+- 3 min seated fast spin at 90 RPM (Z3)
+- 2 min standing surge at 55 RPM (Z5)
+- 4 min seated tempo at 85 RPM (Z4)
+- 3 min seated push at 75 RPM (Z4)
+- 2 min standing finish at 60 RPM (Z5)
+
+Each sub-effort is its own phase (minimum 60s), but there are no recovery phases within the block. If using two blocks, place one recovery phase between them.
 
 ### Final Recovery Phase
 End the workout with a recovery phase for cooling down. Set the target_hr low enough to indicate full recovery (e.g., below 110-120 bpm). Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase. The workout continues until the rider disconnects.
@@ -1273,7 +1291,7 @@ Time cues appropriately: recovery intervals (mental bandwidth available), ragged
 
 Every phase must be at least 60 seconds. The coach adjusts power every 10 seconds based on HR response. Phases must be at least 60 seconds so the coach has time to observe HR and adjust. The coach cannot prescribe micro-intervals within a phase (e.g. '10s sprint + 50s recovery'). Every phase must have ONE consistent effort level. If you want variety, use separate phases -- each at least 60 seconds. Standing efforts, cadence changes, and intensity changes should each be their own phase.
 
-Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), target cadence, position, and form cues for each phase. Use recovery phases after hard efforts with appropriate HR targets.`;
+Design a 45-minute workout. Vary the format from previous plans shown above. Specify zones (not power targets), target cadence, position, and form cues for each phase. Use recovery phases sparingly -- between major blocks and as the final cooldown.`;
 }
 
 /**
