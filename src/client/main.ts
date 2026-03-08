@@ -36,7 +36,35 @@ const sse = new SSEClient();
 const ui = new UIController();
 const timeline = new TimelineController();
 initTimeline(timeline);
-timeline.onTick(() => ui.checkPendingCoach());
+timeline.onTick(() => {
+  ui.checkPendingCoach();
+
+  // Optimistically advance phase display when client clock reaches ends_at,
+  // rather than waiting up to ~15s for the server's next phase event.
+  const plan = getPlan();
+  if (!plan || !plan.phases) return;
+
+  const endsAt = timeline.getEndsAt();
+  const elapsed = timeline.getWorkoutElapsed();
+  const currentIndex = timeline.getCurrentPhaseIndex();
+
+  // Only advance timed phases (endsAt !== null) when time is reached
+  if (endsAt !== null && elapsed >= endsAt) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < plan.phases.length) {
+      const nextPhase = plan.phases[nextIndex];
+
+      // Compute next phase's ends_at
+      let nextEndsAt: number | null = null;
+      if (nextPhase.type !== "recovery" && nextPhase.duration_s) {
+        nextEndsAt = endsAt + nextPhase.duration_s;
+      }
+
+      timeline.updatePhase({ phaseIndex: nextIndex, ends_at: nextEndsAt });
+      ui.handlePhase(nextIndex, plan);
+    }
+  }
+});
 
 // Check for test params in URL
 const params = new URLSearchParams(window.location.search);

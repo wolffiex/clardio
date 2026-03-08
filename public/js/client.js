@@ -214,6 +214,7 @@ class UIController {
     }
     const phase = plan.phases[phaseIndex];
     this.targetCadence = phase.cadence ?? null;
+    this.targetPower = null;
     this.render();
   }
   updatePowerTarget(power) {
@@ -357,6 +358,12 @@ class TimelineController {
   }
   onTick(callback) {
     this.tickCallback = callback;
+  }
+  getEndsAt() {
+    return this.endsAt;
+  }
+  getCurrentPhaseIndex() {
+    return this.currentPhaseIndex;
   }
   hasPlan() {
     return this.phases.length > 0;
@@ -508,7 +515,27 @@ var sse = new SSEClient;
 var ui = new UIController;
 var timeline2 = new TimelineController;
 initTimeline(timeline2);
-timeline2.onTick(() => ui.checkPendingCoach());
+timeline2.onTick(() => {
+  ui.checkPendingCoach();
+  const plan = getPlan();
+  if (!plan || !plan.phases)
+    return;
+  const endsAt = timeline2.getEndsAt();
+  const elapsed = timeline2.getWorkoutElapsed();
+  const currentIndex = timeline2.getCurrentPhaseIndex();
+  if (endsAt !== null && elapsed >= endsAt) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < plan.phases.length) {
+      const nextPhase = plan.phases[nextIndex];
+      let nextEndsAt = null;
+      if (nextPhase.type !== "recovery" && nextPhase.duration_s) {
+        nextEndsAt = endsAt + nextPhase.duration_s;
+      }
+      timeline2.updatePhase({ phaseIndex: nextIndex, ends_at: nextEndsAt });
+      ui.handlePhase(nextIndex, plan);
+    }
+  }
+});
 var params = new URLSearchParams(window.location.search);
 var testMode = params.has("power") || params.has("target_power");
 if (testMode) {

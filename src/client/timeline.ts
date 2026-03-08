@@ -170,6 +170,21 @@ export class TimelineController {
   }
 
   /**
+   * Get the workout-elapsed seconds when the current phase ends.
+   * Returns null for recovery phases (no fixed end time).
+   */
+  getEndsAt(): number | null {
+    return this.endsAt;
+  }
+
+  /**
+   * Get the current phase index (-1 before any phase event is received).
+   */
+  getCurrentPhaseIndex(): number {
+    return this.currentPhaseIndex;
+  }
+
+  /**
    * Check if we have plan data
    */
   hasPlan(): boolean {

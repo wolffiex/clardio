@@ -136,6 +136,7 @@ export class UIController {
 
     const phase = plan.phases[phaseIndex];
     this.targetCadence = phase.cadence ?? null;
+    this.targetPower = null; // Clear stale power — coach will set the new target
     // Position is displayed via the timeline detail line, not a separate UI element
 
     this.render();
