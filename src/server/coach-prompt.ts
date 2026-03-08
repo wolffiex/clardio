@@ -1222,7 +1222,7 @@ Example -- a 20-minute sustained climbing block:
 Each sub-effort is its own phase (minimum 60s), but there are no recovery phases within the block. If using two blocks, place one recovery phase between them.
 
 ### Final Recovery Phase
-End the workout with a recovery phase for cooling down. Set the target_hr low enough to indicate full recovery (e.g., below 110-120 bpm). Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase. The workout continues until the rider disconnects.
+End the workout with a recovery phase for cooling down. Set target_hr to 125 -- the rider doesn't need to come all the way down. Do not include a separate cooldown phase after the recovery -- the recovery IS the cooldown. The last phase of every plan must be a recovery phase. The workout continues until the rider disconnects.
 
 ## Interval Formats
 
