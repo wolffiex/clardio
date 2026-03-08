@@ -373,7 +373,7 @@ async function onCoachTick(): Promise<void> {
       recentLatencies.reduce((s, x) => s + x, 0) / recentLatencies.length;
     aheadSeconds = Math.max((avgLatencyMs + 3000) / 1000, 5);
   }
-  const displayAt = Math.round(workoutElapsed + aheadSeconds);
+  const displayAt = Math.round((workoutElapsed + aheadSeconds) / 5) * 5;
 
   // Check for phase advancement (recovery phases may advance based on HR)
   advancePhaseIfNeeded();
